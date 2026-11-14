@@ -31,15 +31,19 @@ Copilot limits how many files you can attach and struggles to cite sources acros
 
 **4. In the menu:** `2` → add your folders → `0` → `1` → **Enter**. When it finishes, upload **`corpus_completo.md`** to Copilot and paste the text of **`COPILOT_PROMPT.txt`** into the chat.
 
-```
- [1] BUILD THE CONSOLIDATED COPILOT BASE
- [2] Input folders (add, remove, view)
- [3] Settings (outputs, OCR, privacy)
- [4] Open the latest result folder
- [5] Clear extraction cache (re-read everything)
- [L] Idioma: Português
- [0] Exit
-```
+<p align="center"><img src="docs/screenshots/menu.png" alt="Main menu" width="760"></p>
+
+---
+
+## 📸 Screenshots
+
+| 1. Add your folders | 2. Review and confirm |
+| :---: | :---: |
+| <img src="docs/screenshots/folders.png" alt="Input folders screen" width="420"> | <img src="docs/screenshots/confirm.png" alt="Confirmation screen" width="420"> |
+| **3. Build the base** (with local OCR) | **4. The result: one organized file for Copilot** |
+| <img src="docs/screenshots/result.png" alt="Processing and summary" width="420"> | <img src="docs/screenshots/corpus.png" alt="Generated corpus_completo.md" width="420"> |
+
+*Screenshots generated from the sample documents in `copilot_consolidator/exemplos_teste`.*
 
 ---
 
