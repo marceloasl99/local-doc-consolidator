@@ -104,16 +104,14 @@ class TestOfflinePipelineV5(unittest.TestCase):
                 tmp_path.unlink()
 
     def test_cache_config_hash_invalidation(self):
-        """Verifica se alteração nos parâmetros de renderização/OCR altera o hash de cache."""
-        def calc_hash(dpi, min_dim, limiar, prop, pii):
-            return hashlib.md5(f"{dpi}_{min_dim}_{limiar}_{prop}_{pii}".encode("utf-8")).hexdigest()[:8]
-
-        hash_200 = calc_hash(200, 80, 0.50, 20.0, False)
-        hash_300 = calc_hash(300, 80, 0.50, 20.0, False)
-        hash_pii = calc_hash(200, 80, 0.50, 20.0, True)
-
-        self.assertNotEqual(hash_200, hash_300, "Mudança de DPI deve invalidar cache.")
-        self.assertNotEqual(hash_200, hash_pii, "Mudança de flag PII deve invalidar cache.")
+        """A chave real do cache muda com DPI, PII e idioma (rótulos do conteúdo dependem do idioma)."""
+        base = dict(app.CONFIG_PADRAO, idioma="pt")
+        chave = app.chave_cache(base)
+        self.assertNotEqual(chave, app.chave_cache(dict(base, dpi_ocr_pdf=300)), "DPI deve invalidar o cache.")
+        self.assertNotEqual(chave, app.chave_cache(dict(base, mascarar_pii=True)), "PII deve invalidar o cache.")
+        self.assertNotEqual(chave, app.chave_cache(dict(base, idioma="en")), "Idioma deve invalidar o cache.")
+        self.assertEqual(chave, app.chave_cache(dict(base)), "Mesma configuração deve gerar a mesma chave.")
+        self.assertEqual(app.parametros_extracao(base)["versao"], app.VERSAO_EXTRATOR)
 
     def test_i18n_dictionary_completeness(self):
         """Garante que todas as chaves do dicionário em português existem em inglês."""
@@ -137,6 +135,132 @@ class TestOfflinePipelineV5(unittest.TestCase):
             self.assertEqual(app.obter_idioma({}), "en")
         finally:
             sys.argv = orig_argv
+
+
+class TestCorrecoesV61(unittest.TestCase):
+    """Regressões dos bugs corrigidos na v6.1."""
+
+    def test_idioma_do_menu_prevalece_sobre_argv(self):
+        """O launcher passa --lang en, mas a troca de idioma no menu precisa funcionar."""
+        orig_argv = sys.argv.copy()
+        try:
+            sys.argv = ["app.py", "--lang", "en"]
+            self.assertEqual(app.obter_idioma({"idioma": "pt"}), "pt")
+            cfg = app.aplicar_argumentos({"idioma": "pt"})
+            self.assertEqual(cfg["idioma"], "en")
+        finally:
+            sys.argv = orig_argv
+
+    def test_ocr_nao_cola_siglas_nem_palavras_reais(self):
+        texto = "Fornecedor Cloud Services LTDA e Comércio NT sobre proteção que lhe disse nossa mente contra todos"
+        corrigido, _ = app.corrigir_espacos_ocr(texto)
+        self.assertEqual(corrigido, texto)
+
+    def test_mojibake_nao_altera_texto_legitimo(self):
+        texto = "SÃO PAULO - Ação de cobrança nº 123 — “aspas” corretas"
+        reparado, qtd = app.reparar_mojibake(texto)
+        self.assertEqual(reparado, texto)
+        self.assertEqual(qtd, 0)
+
+    def test_layout_ocr_preserva_linhas(self):
+        itens = [
+            ([[10, 10], [100, 10], [100, 20], [10, 20]], "Valor:", 0.9),
+            ([[110, 11], [200, 11], [200, 21], [110, 21]], "R$ 45.890,00", 0.9),
+            ([[10, 30], [120, 30], [120, 40], [10, 40]], "Data: 12/03/2026", 0.9),
+        ]
+        self.assertEqual(app.reconstruir_layout_ocr(itens), "Valor: R$ 45.890,00\nData: 12/03/2026")
+
+    def test_tabela_escapa_pipe_e_remove_colunas_vazias(self):
+        md = app.tabela_para_markdown([["A", "", "B"], ["x|y", "", "2"]])
+        self.assertEqual(md, "| A | B |\n| --- | --- |\n| x\\|y | 2 |")
+
+    def test_markdown_rebaixa_titulos(self):
+        md = app.rebaixar_titulos_markdown("# Título\n```\n# comentário\n```\n## Seção")
+        self.assertEqual(md, "### Título\n```\n# comentário\n```\n#### Seção")
+
+    def test_cabecalhos_rodapes_repetidos(self):
+        paginas = [f"EMPRESA X - CONFIDENCIAL\nConteúdo da página {i} com texto único {i * 7}\nPágina {i} de 5" for i in range(1, 6)]
+        limpas, removidas = app.remover_cabecalhos_rodapes(paginas)
+        self.assertEqual(limpas[0], paginas[0], "A primeira página fica intacta.")
+        self.assertGreater(removidas, 0)
+        for p in limpas[1:]:
+            self.assertNotIn("CONFIDENCIAL", p)
+            self.assertNotIn("de 5", p)
+            self.assertIn("Conteúdo da página", p)
+
+    def test_varredura_ignora_pasta_de_saida_e_temporarios(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            (raiz / "saida").mkdir()
+            (raiz / "saida" / "corpus_completo.md").write_text("velho", encoding="utf-8")
+            (raiz / "doc.txt").write_text("conteúdo", encoding="utf-8")
+            (raiz / "~$temp.docx").write_text("x", encoding="utf-8")
+            (raiz / "vazio.txt").write_text("", encoding="utf-8")
+            (raiz / "antigo.doc").write_text("x", encoding="utf-8")
+            ignorados = {}
+            arquivos, _ = app.listar_arquivos_elegiveis([str(raiz)], [".txt", ".md", ".docx"],
+                                                         excluir=[raiz / "saida"], ignorados=ignorados)
+            self.assertEqual([a.name for _, a in arquivos], ["doc.txt"])
+            self.assertEqual(ignorados.get(".doc"), 1)
+
+    def test_pipeline_ponta_a_ponta(self):
+        """Gera a base a partir de arquivos variados e valida estrutura, IDs e duplicados."""
+        import docx
+
+        with tempfile.TemporaryDirectory() as tmp:
+            entrada = Path(tmp) / "Empresa"
+            (entrada / "Financeiro").mkdir(parents=True)
+            (entrada / "Juridico").mkdir(parents=True)
+            (entrada / "Financeiro" / "contas.csv").write_text("Conta;Valor\nLuz;100\nAgua;50", encoding="utf-8")
+            (entrada / "Financeiro" / "copia.csv").write_text("Conta;Valor\nLuz;100\nAgua;50", encoding="utf-8")
+            (entrada / "Juridico" / "notas.md").write_text("# Contrato\nCláusula | única", encoding="utf-8")
+            d = docx.Document()
+            d.add_heading("Política Interna", level=1)
+            d.add_paragraph("Texto da política.")
+            tab = d.add_table(rows=2, cols=2)
+            tab.cell(0, 0).text, tab.cell(0, 1).text = "Nível", "Prazo"
+            tab.cell(1, 0).text, tab.cell(1, 1).text = "Interno", "5 anos"
+            d.save(entrada / "Juridico" / "politica.docx")
+
+            cfg = dict(app.CONFIG_PADRAO, idioma="pt", pastas_entrada=[str(entrada)],
+                       pasta_saida=str(Path(tmp) / "saida"), max_workers=2,
+                       gerar_arquivo_zip=True, usar_ocr_em_pdf=False, usar_ocr_em_imagens_embutidas=False)
+            res = app.executar_pipeline(cfg, pausar_no_final=False, interativo=False)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["erros"], [])
+            corpus = (res["pasta"] / "corpus_completo.md").read_text(encoding="utf-8")
+
+            self.assertIn("## ÍNDICE DE DOCUMENTOS", corpus)
+            self.assertIn("### Pasta: Empresa/Financeiro", corpus)
+            self.assertIn("### Pasta: Empresa/Juridico", corpus)
+            for doc_id in ("[001]", "[002]", "[003]", "[004]"):
+                self.assertIn(f"*[Fim do documento {doc_id}]*", corpus)
+            # copia.csv é idêntica a contas.csv: conteúdo omitido e marcado
+            self.assertIn("duplicado de [001]", corpus)
+            self.assertIn("Conteúdo omitido para evitar redundância", corpus)
+            self.assertEqual(corpus.count("| Luz | 100 |"), 1)
+            # títulos do .md rebaixados e pipe escapado; tabela do Word convertida
+            self.assertIn("### Contrato", corpus)
+            self.assertNotIn("\n# Contrato", corpus)
+            self.assertIn("### Política Interna", corpus)
+            self.assertIn("| Interno | 5 anos |", corpus)
+            # saídas auxiliares
+            self.assertTrue((res["pasta"] / "relatorio_auditoria.md").exists())
+            self.assertTrue((res["pasta"] / "PROMPT_PARA_COPILOT.txt").exists())
+            self.assertEqual(len(list((res["pasta"] / "por_pasta").glob("*.md"))), 2)
+            self.assertIsNotNone(res["zip"])
+            linhas_jsonl = (res["pasta"] / "corpus_rag.jsonl").read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(linhas_jsonl), 3, "O duplicado não entra na base RAG.")
+
+    def test_particionamento_preserva_ordem_e_divide_documento_grande(self):
+        docs = [{"id": f"[{i:03d}]", "nome": f"d{i}.txt"} for i in range(1, 4)]
+        blocos = [(docs[0], "a" * 100), (docs[1], ("linha\n\n" * 400)), (docs[2], "c" * 100)]
+        partes = app.particionar(blocos, 1000, "pt")
+        ids = [d["id"] for parte in partes for d, _ in parte]
+        self.assertEqual(ids[0], "[001]")
+        self.assertEqual(ids[-1], "[003]")
+        self.assertGreater(ids.count("[002]"), 1, "Documento maior que o limite vira vários trechos.")
+        self.assertTrue(all(len(b.encode("utf-8")) <= 1200 for parte in partes for _, b in parte))
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
 # Relatório Histórico Completo & Estado Atual do Projeto
 ## Projeto: Local Document Consolidator (`local-doc-consolidator`)
 **Repositório Oficial:** `marceloasl99/local-doc-consolidator`  
-**Versão Atual:** `v6.0`  
+**Versão Atual:** `v6.1`  
 **Última Atualização:** Novembro de 2026  
-**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 9/9 Passando  
+**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 19/19 Passando  
 
 ---
 
@@ -107,6 +107,24 @@ flowchart TD
     - O motor de anonimização (compatível com LGPD/GDPR) permanece totalmente implementado e pode ser ativado a qualquer momento via menu interativo ou chave no `config.json`, cobrindo agora: CPF, RG, CNPJ, e-mails, telefones, endereços completos com CEP e nomes de pessoas com base em pistas contextuais.
   - **Normalização e Deduplicação de Caminhos:** O carregador de configurações (`carregar_config`) unifica caminhos relativos e absolutos, impedindo o processamento duplicado acidental de diretórios.
   - **Validação de Testes Automatizados (9/9 Passando):** Suíte de testes unitários consolidada (`test_v5_pipeline.py`) cobrindo sanitização de caminhos, integridade de cache, OCR local, reparo de mojibake, união de quebras e exportação JSONL.
+
+---
+
+### 2.7 Versão 6.1 — Revisão de Qualidade da Base, Correção de Bugs e Novo Menu
+- **Objetivo:** Garantir que a base entregue ao Copilot seja organizada, sem ruído e fiel aos originais em acervos grandes e heterogêneos.
+- **Bugs corrigidos:**
+  - Troca de idioma pelo menu não funcionava quando o launcher passava `--lang` (o argumento sobrescrevia a escolha a cada tela).
+  - Cache sem versão do extrator e sem idioma: execuções reaproveitavam extrações antigas (ex.: rótulos em português num corpus em inglês, correções de OCR não aplicadas).
+  - Correção de OCR colava siglas e palavras reais (`Comércio LTDA` → `ComércioLTDA`, `sobre proteção` → `sobreproteção`, `que lhe` → `quelhe`).
+  - OCR de cada imagem virava um único parágrafo; agora linhas e colunas são reconstruídas pelas coordenadas.
+  - PDF: texto de tabelas saía duplicado (texto + tabela); páginas com imagem de fundo perdiam o texto nativo; logos repetidos eram transcritos em todas as páginas; blocos de imagem eram ignorados de forma inconsistente.
+  - A pasta de saída podia ser reindexada se estivesse dentro de uma pasta de entrada; com saída sem data/hora, o `.zip` incluía o cache inteiro.
+  - Um arquivo que derrubasse um processo (falha nativa/memória) encerrava o pipeline inteiro; agora o culpado é isolado e o restante é processado.
+  - Gravação de cache concorrente usava o mesmo arquivo temporário; Excel com dados fora da célula A1 desalinhava fórmulas; tabelas com `|` quebravam o Markdown; imagens EMF/WMF geravam "falhas técnicas" no texto.
+- **Melhorias na base:** cabeçalho padronizado por documento, índice em tabelas agrupado por pasta/departamento, instruções para o Copilot no início do arquivo, marcador de fim de documento, duplicados omitidos, aviso de versões semelhantes, remoção de cabeçalhos/rodapés repetidos em PDF, títulos do Word/Markdown/HTML em hierarquia consistente, gráficos do PowerPoint com dados em tabela, shapes agrupados, caixas de texto do Word e novos formatos (HTML, EML, JSON, XML, LOG, XLSM).
+- **Menu:** reorganizado em 5 opções principais, gerenciador único de pastas com contagem de arquivos por pasta, configurações agrupadas por finalidade, confirmação antes de apagar cache, opção de abrir a pasta do resultado e cancelamento com Ctrl+C.
+- **Launchers:** launcher único por sistema (`_launcher_windows.bat`, `_launcher_macos.sh`) chamado por `start.bat`/`run.bat`/`start.ps1` (inglês), `iniciar_windows.bat`/`iniciar.ps1` (português) e pelos `.command` do macOS; arquivos `.bat` com quebra de linha CRLF (a versão LF fazia a janela fechar), detecção do Python real (ignora o atalho da Microsoft Store e o Python 3.9 do macOS) e tutorial para leigos em `COMO_USAR.md` / `HOW_TO_USE.md`.
+- **Testes:** 19 testes automatizados, incluindo um teste de ponta a ponta do pipeline.
 
 ---
 

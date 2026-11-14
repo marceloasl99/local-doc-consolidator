@@ -22,3 +22,15 @@ saida_copilot/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Configuração pessoal (caminhos locais) - use config.example.json / pastas.example.txt
+copilot_consolidator/config.json
+copilot_consolidator/pastas.txt
+
+# Documentos de trabalho locais (podem conter dados reais)
+RELATORIO_ANALISE_E_SUGESTOES.md
+RELATORIO_QUALIDADE_v5.md
+*.PDF
+/*.pdf
+copilot_consolidator/analise_conversoes.js
+copilot_consolidator/resumo_cache.py

@@ -1,118 +1,73 @@
-# local-doc-consolidator - Copilot & RAG Document Consolidator v6.0 🚀📁
+# Local Document Consolidator for Microsoft Copilot & RAG v6.1
 
 [![Platform: Windows 11 & macOS](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacy: 100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success.svg)](.)
-[![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Deep-brightgreen.svg)](.)
-[![Privacy: Raw Data Preserved](https://img.shields.io/badge/Privacy-Raw%20Data%20Preserved-blue.svg)](.)
-[![Performance: Multicore Parallel](https://img.shields.io/badge/Performance-Multicore%20Parallel-orange.svg)](.)
-[![Export: Markdown + JSONL RAG](https://img.shields.io/badge/Export-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
+[![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local-brightgreen.svg)](.)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An enterprise-grade, **100% local, offline, and secure** tool to index, convert, and consolidate massive volumes of confidential documents (PDFs, Word documents with embedded images, Excel sheets with embedded images, PowerPoint slides, and standalone scanned images) into clean, continuous Markdown optimized for **Microsoft 365 Copilot** and structured JSONL for **local RAG pipelines (Chroma, Qdrant, LangChain)**.
+A **100% local, offline** tool that reads large volumes of mixed documents and produces **one organized Markdown knowledge base** for **Microsoft 365 Copilot** to answer from. Every document gets an ID (`[001]`, `[002]`...) so Copilot can cite exactly where each fact came from.
 
-Process **hundreds to thousands of files** across multiple departmental folders with zero data leakage to external cloud services and without requiring Administrator privileges on Windows or macOS (no external system dependencies like Poppler or Tesseract).
+Supported formats: PDF (native or scanned), Word (`.docx`), Excel (`.xlsx`, `.xlsm`, `.xls`), PowerPoint (`.pptx`), CSV, TXT, Markdown, HTML, `.eml` e-mails, JSON, XML, logs and images (`.png`, `.jpg`, `.tif`, `.bmp`, `.webp`). Images inside PDF, Word, Excel and PowerPoint files go through local OCR.
 
----
+> 🇧🇷 *Versão em português: [LEIAME.md](LEIAME.md).* · 📜 *Full history: [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
-> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, abra [LEIAME.md](LEIAME.md).*  
-> 📜 *For the exhaustive version evolution history (v0.1 to v6.0) and technical architecture audit, see [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
-
----
-
-## 🌟 Key Features (v6.0)
-
-* **🧠 Deep Offline OCR (RapidOCR + ONNX Runtime):**
-  * **Scanned & Hybrid PDFs:** Reads native digital text and automatically executes OCR on fully scanned pages or embedded images within mixed pages.
-  * **Word (`.docx`) with Images:** Extracts embedded screenshots, invoices, or signed slips (`word/media/`) in context and transcribes them via OCR.
-  * **Excel (`.xlsx` & `.xls`) with Images:** Detects and transcribes receipts, tables, and images pasted into spreadsheet sheets (`xl/media/`).
-  * **PowerPoint (`.pptx`) with Images:** Transcribes diagrams and charts embedded across presentation slides.
-  * **Standalone Images (`.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`):** Directly parses receipts and document photos into Markdown with resolution metadata.
-* **🔤 Automatic Mojibake & Encoding Repair:**
-  * Auto-detects and repairs corrupted UTF-8 encodings (e.g. UTF-8 misinterpreted as CP1252/Latin-1, converting `ObservaÃ§Ã£o` -> `Observação`, `MÃ©todo` -> `Método`, `nÃ£o` -> `não`).
-* **✨ OCR Phonotactic Word De-breaking:**
-  * Eliminates OCR segmentation space artifacts (e.g., `Aute nticacao` -> `Autenticacao`, `comprova nte` -> `comprovante`, `docu mento` -> `documento`, `estabeleci mento` -> `estabelecimento`).
-* **🔍 Near-Duplicate Content Detection:**
-  * Computes lexical overlap (Jaccard / Overlap >= 80%) across distinct documents (revisions, draft templates) and includes disambiguation notes in `00_INDICE_MESTRE.md` and audit reports.
-* **🛡️ Optional PII Redaction (Raw Data Preserved by Default):**
-  * Preserves raw data by default for complete analytical accuracy (keeps names, CPFs, RGs, addresses, emails, and phone numbers).
-  * Easily toggle PII redaction on via menu option `[5] -> [9]`, pre-execution prompt `[P]`, or `--redact-pii` flag to mask sensitive records before external distribution.
-* **📦 Smart Output Partitioning Without Redundancy:**
-  * **Continuous Clean Markdown (`corpus_completo.md`):** Fluid text without disruptive page separators.
-  * **No Redundant Single Parts:** If the whole corpus fits inside the chunk limit (e.g. < 8 MB), suppresses duplicate `corpus_parte_01.md`, saving 50% disk and ZIP size.
-  * **Structured Vector RAG Dataset (`corpus_rag.jsonl`):** Page-by-page records with metadata for vector databases.
-* **📊 Dedicated Native Bilingual Reports:**
-  * Generates `relatorio_auditoria.md` (100% Brazilian Portuguese) and `audit_report.md` (100% English).
-  * Explicit heuristic token estimation labeling (4 characters/token).
-* **⚡ Multicore Safety & Cryptographic Cache:**
-  * Caps worker processes (`min(4, os.cpu_count())`) to prevent RAM exhaustion.
-  * Parametric SHA-256 cache taking DPI, OCR thresholds, and PII masking into account.
+> 🧭 **Never used Python or a terminal?** Follow the step-by-step guide [HOW_TO_USE.md](HOW_TO_USE.md) (Windows and macOS).
 
 ---
 
-## 🛠️ Quick Start
+## 🚀 How to use
 
-### English Interface (Windows)
-* **Command Prompt (CMD - Type directly):**
-  ```cmd
-  run.bat
-  :: or
-  start.bat
-  ```
-* **PowerShell / Windows Terminal (Current Window):**
-  ```powershell
-  .\start.ps1
-  ```
+1. **Start it** (the first run installs dependencies into `.venv` automatically):
+   - PowerShell: `.\start.ps1` · CMD/Explorer: `run.bat` · macOS: `./copilot_consolidator/start_macos.command`
+   - Portuguese: `.\iniciar.ps1`, `iniciar_windows.bat` or `iniciar_macos.command`
+2. **[2] Input folders**: add folders (file explorer dialog, pasted path, or a parent folder with all its subfolders).
+3. **[1] Build the consolidated base**: review the summary and press ENTER.
+4. **Upload `corpus_completo.md` to Copilot** (or the `corpus_parte_XX.md` parts if the base was split) and paste `COPILOT_PROMPT.txt` into the chat.
 
-### Portuguese Interface (Windows)
-* **PowerShell / Windows Terminal (Mesma Janela):**
-  ```powershell
-  .\iniciar.ps1
-  ```
-* **Command Prompt / Windows Explorer:**
-  ```cmd
-  iniciar_windows.bat
-  ```
+### Main menu
 
-### macOS Launcher
-- English: `./copilot_consolidator/start_macos.command`
-- Portuguese: `./copilot_consolidator/iniciar_macos.command`
-
-### Command Line (Automated / Headless)
-```powershell
-# English execution (Raw data preserved by default)
-python copilot_consolidator/app.py --auto --lang en
-
-# Portuguese execution
-python copilot_consolidator/app.py --auto --lang pt
-
-# Optional: Enable PII redaction (mask names, CPFs, RGs, addresses, phone)
-python copilot_consolidator/app.py --auto --lang en --redact-pii
+```
+ [1] BUILD THE CONSOLIDATED COPILOT BASE
+ [2] Input folders (add, remove, view)
+ [3] Settings (outputs, OCR, privacy)
+ [4] Open the latest result folder
+ [5] Clear extraction cache (re-read everything)
+ [L] Idioma: Português
+ [0] Exit
 ```
 
 ---
 
-## 🧪 Automated Unit Tests
+## 📦 Output
 
-To run the full unit test suite:
+In `saida_copilot/processado_YYYYMMDD_HHMMSS/` (always mirrored to `saida_copilot/ultimo_processamento/`):
+
+| File | Content |
+| --- | --- |
+| `corpus_completo.md` | **The single base**: Copilot instructions, document index grouped by folder, and every document |
+| `corpus_parte_XX.md` | The same base split into parts of up to N MB (only when it does not fit in one), each with its own index |
+| `00_INDICE_MESTRE.md` | The catalog only (ID, document, type, notes) |
+| `por_pasta/*.md` | One file per folder/department, for topic-specific questions |
+| `corpus_rag.jsonl` | One line per page with metadata, for vector databases |
+| `audit_report.md` | Failures, documents without text, low-confidence OCR, duplicates, similar versions, skipped formats |
+| `COPILOT_PROMPT.txt` | Answering rules to paste into the chat |
+
+Quality safeguards: duplicate files are listed but their content is not repeated; near-identical versions are flagged; PDF tables become Markdown tables without duplicated text; repeated headers/footers and page numbers are removed; OCR keeps the line layout of receipts and forms; corrupted accents (`ObservaÃ§Ã£o`) are repaired; personal data is kept by default (enable masking with `--redact-pii`).
+
+## ⌨️ Command line
+
+```powershell
+python copilot_consolidator/app.py --auto --lang en                     # uses config.json
+python copilot_consolidator/app.py --auto --input "D:\Docs" --output "D:\Base"
+python copilot_consolidator/app.py --auto --redact-pii --workers 2 --no-ocr
+python copilot_consolidator/app.py --help
+```
+
+## 🧪 Tests
+
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
 
----
-
-## 📚 Evolution History & Project State
-
-From an initial sequential script to a high-throughput, enterprise-grade offline consolidation pipeline:
-* **v0.1 - v1.0:** Initial sequential prototype (basic PDF/TXT extraction, no OCR, context truncation issues).
-* **v2.0 - v3.0:** Office suite support (Word, Excel, PowerPoint, CSV) + Local offline OCR engine (RapidOCR ONNX).
-* **v4.0:** Multiprocessing (`ProcessPoolExecutor`), SHA-256 disk cache, quadruple partitioning, and automated ZIP packaging.
-* **v5.0:** 100% offline (removed cloud wrappers), vector dataset export (`corpus_rag.jsonl`), DPI cache keys, and suppression of internal page breaks.
-* **v5.1:** Textual integrity engine (auto-repair of corrupted UTF-8/CP1252 mojibake, OCR space desegmentation, near-duplicate detection, pure bilingual reports).
-* **v6.0 (Current):** Console resilience on Windows (`run.bat` to eliminate CMD `START` collisions, native `start.ps1`/`iniciar.ps1` PowerShell scripts), raw sensitive data preserved by default, and configurable PII masking for names, RGs, CPFs, and addresses.
-
-👉 For the comprehensive architectural breakdown and benchmark metrics, read [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
-
----
-
 ## 📄 License
-Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Distributed under the **MIT License**. See [LICENSE](LICENSE).

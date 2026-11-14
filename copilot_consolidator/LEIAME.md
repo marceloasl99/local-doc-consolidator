@@ -1,118 +1,98 @@
-# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.0 🚀📁
+# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.1
 
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
-[![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Profundo-brightgreen.svg)](.)
-[![Privacidade: Dados Originais Preservados](https://img.shields.io/badge/Privacidade-Dados%20Originais%20Preservados-blue.svg)](.)
-[![Performance: Multicore Paralelo](https://img.shields.io/badge/Performance-Multicore%20Paralelo-orange.svg)](.)
-[![Exportação: Markdown + JSONL RAG](https://img.shields.io/badge/Exporta%C3%A7%C3%A3o-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
+[![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local-brightgreen.svg)](.)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-blue.svg)](LICENSE)
 
-Ferramenta corporativa em Python, **100% local, privada e offline**, projetada para indexar, converter e consolidar volumes massivos de documentos corporativos confidenciais (PDFs nativos e escaneados, Word com capturas de tela, Excel com comprovantes embutidos, apresentações PowerPoint e fotos avulsas de documentos) em Markdown contínuo para o **Microsoft 365 Copilot** e base estruturada JSONL para **RAG local (Chroma, Qdrant, Milvus, LangChain)**.
+Ferramenta **100% local e offline** que lê grandes volumes de documentos variados e gera **uma única base Markdown organizada** para o **Microsoft 365 Copilot** usar como fonte das respostas. Cada documento recebe um ID (`[001]`, `[002]`...) para que o Copilot cite exatamente de onde tirou cada informação.
 
-Processe **centenas a milhares de arquivos** espalhados em pastas departamentais sem nenhum vazamento para a nuvem e sem exigir privilégios de administrador no Windows ou dependências externas como Tesseract ou Poppler.
+Formatos lidos: PDF (com texto ou digitalizado), Word (`.docx`), Excel (`.xlsx`, `.xlsm`, `.xls`), PowerPoint (`.pptx`), CSV, TXT, Markdown, HTML, e-mails `.eml`, JSON, XML, logs e imagens (`.png`, `.jpg`, `.tif`, `.bmp`, `.webp`). Imagens dentro de PDFs, Word, Excel e PowerPoint passam por OCR local.
 
----
+> 🇺🇸 *English version: [README.md](README.md).* · 📜 *Histórico completo: [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
-> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
-> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
-
----
-
-## 🌟 Principais Recursos (v6.0)
-
-1. **🧠 OCR Local Profundo com RapidOCR (ONNX Runtime):**
-   - Transcreve páginas escaneadas e imagens embutidas em Word, Excel, PowerPoint e PDFs.
-   - 100% offline, executando na CPU ou GPU local sem nenhuma requisição de rede.
-2. **🔤 Correção Automática de Mojibake & Encodings:**
-   - Detecta e repara corrupções de codificação em arquivos de entrada (ex: UTF-8 interpretado como CP1252/Latin-1 e re-salvo, convertendo `ObservaÃ§Ã£o` -> `Observação`, `MÃ©todo` -> `Método`, `nÃ£o` -> `não`).
-3. **✨ Recombinação Fonotática de Palavras Quebradas por OCR:**
-   - Desfaz erros de segmentação espacial e kerning do OCR (ex: `Aute nticacao` -> `Autenticacao`, `comprova nte` -> `comprovante`, `docu mento` -> `documento`, `estabeleci mento` -> `estabelecimento`).
-4. **🔍 Detecção de Conteúdo Quase-Duplicado (Near-Duplicates):**
-   - Analisa sobreposição lexical (Jaccard / Overlap >= 80%) entre documentos distintos (versões revisadas, templates com nomes alterados) e registra avisos explícitos no `00_INDICE_MESTRE.md` e nos relatórios de auditoria para evitar alucinações no Copilot.
-5. **🛡️ Anonimização Opcional de PII (Dados Originais Preservados por Padrão):**
-   - Por padrão, preserva todos os dados na íntegra para máxima fidelidade analítica (mantém nomes, CPFs, RGs, endereços, e-mails e telefones).
-   - Anonimização ativável a qualquer momento via opção `[5] -> [9]` do menu, tecla `[P]` na tela de confirmação prévia, ou flag `--redact-pii` para ocultar registros sensíveis.
-6. **📦 Particionamento Inteligente Sem Redundância:**
-   - **Markdown Contínuo (`corpus_completo.md`):** Texto limpo e fluido sem divisores intrusivos de página no meio do arquivo.
-   - **Eliminação de Partes Redundantes:** Quando o corpus é menor que o limite de partição (ex: < 8 MB), suprime `corpus_parte_01.md` solteiro, economizando 50% de espaço em disco e ZIP.
-   - **Base Estruturada para RAG (`corpus_rag.jsonl`):** Registro página a página com metadados para indexadores vetoriais.
-7. **📊 Relatórios Nativos Bilíngues e Estimativa Transparente de Tokens:**
-   - Gera `relatorio_auditoria.md` (100% em português) e `audit_report.md` (100% em inglês).
-   - Rótulo explícito de tokens estimados via heurística (4 caracteres/token).
-8. **⚡ Multicore Seguro e Cache Criptográfico:**
-   - Limite de concorrência seguro (`min(4, os.cpu_count())`) para proteção de memória RAM.
-   - Cache SHA-256 atômico parametrizado com DPI, limiares de OCR e flags de PII.
+> 🧭 **Nunca usou Python ou terminal?** Siga o passo a passo [COMO_USAR.md](../COMO_USAR.md) (Windows e macOS).
 
 ---
 
-> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
-> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
+## 🚀 Como usar
 
----
+1. **Inicie** (a primeira execução instala as dependências em `.venv` automaticamente):
+   - PowerShell: `.\iniciar.ps1` · CMD/Explorer: `iniciar_windows.bat` · macOS: `./copilot_consolidator/iniciar_macos.command`
+   - Em inglês: `.\start.ps1`, `run.bat` ou `start_macos.command`
+2. **[2] Pastas de entrada** → adicione as pastas (janela do Explorer, colando o caminho ou uma pasta mãe com todas as subpastas).
+3. **[1] Gerar base consolidada** → confira o resumo e pressione ENTER.
+4. **Envie `corpus_completo.md` ao Copilot** (ou as partes `corpus_parte_XX.md`, se a base tiver sido dividida) e cole o conteúdo de `PROMPT_PARA_COPILOT.txt` no chat.
 
-## 🚀 Como Executar
+### Menu principal
 
-### Windows (Português)
-* **PowerShell / Windows Terminal (Na mesma janela):**
-  ```powershell
-  .\iniciar.ps1
-  ```
-* **Prompt de Comando / Windows Explorer:**
-  ```cmd
-  iniciar_windows.bat
-  ```
-
-### Windows (Inglês)
-* **PowerShell / Windows Terminal (In-Window):**
-  ```powershell
-  .\start.ps1
-  ```
-* **Prompt de Comando / Windows Explorer:**
-  ```cmd
-  start.bat
-  ```
-
-### macOS
-- Português: `./copilot_consolidator/iniciar_macos.command`
-- Inglês: `./copilot_consolidator/start_macos.command`
-
-### Linha de Comando (Modo Automatizado)
-```powershell
-# Execução padrão (Dados originais preservados na íntegra, Português)
-python copilot_consolidator/app.py --auto --lang pt
-
-# Execução em Inglês
-python copilot_consolidator/app.py --auto --lang en
-
-# Opcional: Ativar anonimização de PII (mascarar nomes, CPFs, RGs, endereços, telefones)
-python copilot_consolidator/app.py --auto --lang pt --redact-pii
+```
+ [1] GERAR BASE CONSOLIDADA PARA O COPILOT
+ [2] Pastas de entrada (adicionar, remover, ver)
+ [3] Configurações (saídas, OCR, privacidade)
+ [4] Abrir a pasta do último resultado
+ [5] Limpar cache de extração (força reler tudo)
+ [L] Language: English
+ [0] Sair
 ```
 
+O menu mostra quantos arquivos foram encontrados por tipo e avisa sobre pastas inexistentes. A tela de confirmação permite ajustar na hora o tamanho das partes, os processos paralelos, o OCR, a anonimização de PII e o `.zip`.
+
 ---
 
-## 🧪 Testes Automatizados
+## 📦 O que é gerado
 
-Para executar a suíte de testes unitários:
+Em `saida_copilot/processado_AAAAMMDD_HHMMSS/` (cópia sempre atualizada em `saida_copilot/ultimo_processamento/`):
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `corpus_completo.md` | **A base única**: instruções para o Copilot, índice de documentos agrupado por pasta e todos os documentos |
+| `corpus_parte_XX.md` | A mesma base dividida em partes de até N MB (só quando não cabe em uma), cada uma com seu índice |
+| `00_INDICE_MESTRE.md` | Só o catálogo (ID, documento, tipo, observações) |
+| `por_pasta/*.md` | Um arquivo por pasta/departamento, para perguntas sobre um tema específico |
+| `corpus_rag.jsonl` | Uma linha por página, com metadados, para bancos vetoriais (Chroma, Qdrant, LangChain) |
+| `relatorio_auditoria.md` | Falhas, documentos sem texto, OCR com baixa confiança, duplicados, versões semelhantes e formatos ignorados |
+| `PROMPT_PARA_COPILOT.txt` | Regras de resposta para colar no chat |
+
+### Estrutura de cada documento na base
+
+```markdown
+## [004] Relatorio_Financeiro_2026.pdf
+
+- **Origem:** `Empresa/Financeiro/Relatorio_Financeiro_2026.pdf`
+- **Tipo:** PDF · **Páginas:** 12 · **OCR:** 3 trecho(s), confiança média 91%
+- **Metadados:** Título: ... · Autor: ... · Criado em: 2026-03-01
+
+(texto, títulos, listas e tabelas em Markdown, na ordem do documento original)
+
+*[Fim do documento [004]]*
+```
+
+### Cuidados com a qualidade da base
+
+- **Duplicados:** arquivos idênticos (ou com o mesmo texto) aparecem no índice como `duplicado de [ID]` e o conteúdo não é repetido.
+- **Versões semelhantes:** documentos com ≥ 80% do vocabulário em comum recebem um aviso para o Copilot não misturar versões.
+- **PDF:** tabelas viram tabelas Markdown sem duplicar o texto, cabeçalhos/rodapés repetidos e números de página são removidos (a 1ª página fica intacta), e frases quebradas em linhas são reunidas.
+- **OCR:** linhas e colunas de recibos e formulários são preservadas; logos repetidos são lidos uma vez; palavras quebradas (`Aute nticacao`) são unidas sem colar siglas (`LTDA`) nem palavras reais.
+- **Acentuação corrompida** (`ObservaÃ§Ã£o`) é corrigida automaticamente.
+- **Dados pessoais** são preservados por padrão; ative a anonimização em `[3] → [20]`, com `[P]` na confirmação ou com `--redact-pii`.
+
+---
+
+## ⌨️ Linha de comando
+
+```powershell
+python copilot_consolidator/app.py --auto --lang pt                     # usa config.json
+python copilot_consolidator/app.py --auto --input "D:\Docs" --output "D:\Base"
+python copilot_consolidator/app.py --auto --redact-pii --workers 2 --no-ocr
+python copilot_consolidator/app.py --help
+```
+
+## 🧪 Testes
+
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
 
----
-
-## 📚 Histórico de Evolução & Estado Atual
-
-De um script sequencial básico a um pipeline corporativo offline de alta performance:
-* **v0.1 - v1.0:** Protótipo sequencial inicial (extração básica de PDF/TXT, sem OCR, problemas de truncamento de contexto).
-* **v2.0 - v3.0:** Suporte ao pacote Office (Word, Excel, PowerPoint, CSV) + Motor de OCR local offline (RapidOCR ONNX).
-* **v4.0:** Multiprocessamento (`ProcessPoolExecutor`), cache SHA-256 em disco, quádruplo particionamento e empacotamento ZIP automatizado.
-* **v5.0:** 100% offline (remoção de bibliotecas cloud), exportação estruturada RAG (`corpus_rag.jsonl`), cache por DPI e supressão de quebras de página internas.
-* **v5.1:** Motor de integridade textual (auto-reparo de mojibake UTF-8/CP1252, desfragmentação de palavras do OCR, detecção de quase-duplicatas e relatórios 100% bilíngues).
-* **v6.0 (Atual):** Resiliência de console no Windows (`run.bat` para evitar conflito com `START` do CMD, scripts PowerShell nativos `iniciar.ps1`/`start.ps1`), preservação de dados brutos por padrão e mascaramento configurável de PII (nomes, RGs, CPFs e endereços).
-
-👉 Para o detalhamento arquitetural completo e métricas de benchmark, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
-
----
-
 ## 📄 Licença
-Distribuído sob a licença **MIT**. Consulte o arquivo [LICENSE](LICENSE) para mais detalhes.
+Distribuído sob a licença **MIT**. Consulte [LICENSE](LICENSE).
