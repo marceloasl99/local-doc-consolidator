@@ -80,7 +80,7 @@ Depois é só perguntar. O Copilot vai citar os documentos pelo número, por exe
 | Problema | Solução |
 | --- | --- |
 | "Python não foi encontrado" | Refaça a Parte 1. No Windows, **marque "Add python.exe to PATH"**. Depois feche e abra o programa de novo. |
-| A janela abre e fecha na hora, ou nada acontece (Windows) | Dê dois cliques no `iniciar_windows.bat`. No PowerShell, digite `.iniciar_windows.bat` (com `.` na frente). Digitar só `start` não funciona: é um comando do Windows. |
+| A janela abre e fecha na hora, ou nada acontece (Windows) | Dê dois cliques no `iniciar_windows.bat`. No PowerShell, digite `.\iniciar_windows.bat` (com `.\` na frente). Digitar só `start` não funciona: é um comando do Windows. |
 | Erro ao instalar as bibliotecas | Verifique a internet e abra o programa de novo. Na rede da empresa, o proxy pode bloquear: tente em outra rede. |
 | Um documento ficou "sem texto" | É um PDF digitalizado ou uma imagem sem texto legível. Veja o `relatorio_auditoria.md`. |
 | Arquivos `.doc`, `.ppt` ou `.msg` foram ignorados | Abra no Office e use **Salvar como** `.docx`, `.pptx` ou PDF. |
