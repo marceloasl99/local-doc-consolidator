@@ -19,7 +19,7 @@ Formatos lidos: PDF (com texto ou digitalizado), Word (`.docx`), Excel (`.xlsx`,
 
 1. **Inicie** (a primeira execução instala as dependências em `.venv` automaticamente):
    - PowerShell: `.\iniciar.ps1` · CMD/Explorer: `iniciar_windows.bat` · macOS: `./copilot_consolidator/iniciar_macos.command`
-   - Em inglês: `.\start.ps1`, `run.bat` ou `start_macos.command`
+   - Em inglês: `start.bat` / `.start.bat` / `bash start_macos.command`. ⚠️ Digitar só `start` não funciona: é um comando do próprio Windows.
 2. **[2] Pastas de entrada** → adicione as pastas (janela do Explorer, colando o caminho ou uma pasta mãe com todas as subpastas).
 3. **[1] Gerar base consolidada** → confira o resumo e pressione ENTER.
 4. **Envie `corpus_completo.md` ao Copilot** (ou as partes `corpus_parte_XX.md`, se a base tiver sido dividida) e cole o conteúdo de `PROMPT_PARA_COPILOT.txt` no chat.

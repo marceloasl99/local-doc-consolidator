@@ -24,6 +24,6 @@ Type the option number and press Enter:
 | Problem | Fix |
 | --- | --- |
 | "Python was not found" | Redo step 1 and check **"Add python.exe to PATH"** (Windows). |
-| Window opens and closes (Windows) | Double-click `start.bat`; don't type `start` in a terminal (it's a built-in Windows command). |
+| Window opens and closes, or nothing happens (Windows) | Double-click `start.bat`. In PowerShell type `.start.bat` (with the leading `.`). Typing just `start` runs a built-in Windows command. |
 | Library install fails | Check your internet connection; corporate proxies may block it. |
 | `.doc`, `.ppt`, `.msg` skipped | Re-save them as `.docx`, `.pptx` or PDF. |
