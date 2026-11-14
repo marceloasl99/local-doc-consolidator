@@ -14,7 +14,8 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ---
 
-> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, abra [LEIAME.md](LEIAME.md).*
+> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, abra [LEIAME.md](LEIAME.md).*  
+> 📜 *For the exhaustive version evolution history (v0.1 to v6.0) and technical architecture audit, see [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
 ---
 
@@ -96,6 +97,20 @@ To run the full unit test suite:
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
+
+---
+
+## 📚 Evolution History & Project State
+
+From an initial sequential script to a high-throughput, enterprise-grade offline consolidation pipeline:
+* **v0.1 - v1.0:** Initial sequential prototype (basic PDF/TXT extraction, no OCR, context truncation issues).
+* **v2.0 - v3.0:** Office suite support (Word, Excel, PowerPoint, CSV) + Local offline OCR engine (RapidOCR ONNX).
+* **v4.0:** Multiprocessing (`ProcessPoolExecutor`), SHA-256 disk cache, quadruple partitioning, and automated ZIP packaging.
+* **v5.0:** 100% offline (removed cloud wrappers), vector dataset export (`corpus_rag.jsonl`), DPI cache keys, and suppression of internal page breaks.
+* **v5.1:** Textual integrity engine (auto-repair of corrupted UTF-8/CP1252 mojibake, OCR space desegmentation, near-duplicate detection, pure bilingual reports).
+* **v6.0 (Current):** Console resilience on Windows (`run.bat` to eliminate CMD `START` collisions, native `start.ps1`/`iniciar.ps1` PowerShell scripts), raw sensitive data preserved by default, and configurable PII masking for names, RGs, CPFs, and addresses.
+
+👉 For the comprehensive architectural breakdown and benchmark metrics, read [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
 
 ---
 

@@ -3,7 +3,7 @@
 [![Platform: Windows 11 & macOS](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacy: 100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success.svg)](.)
 [![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Deep-brightgreen.svg)](.)
-[![Compliance: PII Redacted](https://img.shields.io/badge/Privacy-PII%20Redaction%20ON-blue.svg)](.)
+[![Privacy: Raw Data Preserved](https://img.shields.io/badge/Privacy-Raw%20Data%20Preserved-blue.svg)](.)
 [![Performance: Multicore Parallel](https://img.shields.io/badge/Performance-Multicore%20Parallel-orange.svg)](.)
 [![Export: Markdown + JSONL RAG](https://img.shields.io/badge/Export-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -14,7 +14,8 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ---
 
-> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, abra [LEIAME.md](LEIAME.md).*
+> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, abra [LEIAME.md](LEIAME.md).*  
+> 📜 *For the exhaustive version evolution history (v0.1 to v6.0) and technical architecture audit, see [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
 ---
 
@@ -32,8 +33,9 @@ Process **hundreds to thousands of files** across multiple departmental folders 
   * Eliminates OCR segmentation space artifacts (e.g., `Aute nticacao` -> `Autenticacao`, `comprova nte` -> `comprovante`, `docu mento` -> `documento`, `estabeleci mento` -> `estabelecimento`).
 * **🔍 Near-Duplicate Content Detection:**
   * Computes lexical overlap (Jaccard / Overlap >= 80%) across distinct documents (revisions, draft templates) and includes disambiguation notes in `00_INDICE_MESTRE.md` and audit reports.
-* **🛡️ Privacy & PII Redaction (Safe-by-Default):**
-  * Masks CPFs, CNPJs, email addresses, and phone numbers before ingestion into Microsoft 365 Copilot cloud (disable with `--no-pii` when desired).
+* **🛡️ Optional PII Redaction (Raw Data Preserved by Default):**
+  * Preserves raw data by default for complete analytical accuracy (keeps names, CPFs, RGs, addresses, emails, and phone numbers).
+  * Easily toggle PII redaction on via menu option `[5] -> [9]`, pre-execution prompt `[P]`, or `--redact-pii` flag to mask sensitive records before external distribution.
 * **📦 Smart Output Partitioning Without Redundancy:**
   * **Continuous Clean Markdown (`corpus_completo.md`):** Fluid text without disruptive page separators.
   * **No Redundant Single Parts:** If the whole corpus fits inside the chunk limit (e.g. < 8 MB), suppresses duplicate `corpus_parte_01.md`, saving 50% disk and ZIP size.
@@ -62,13 +64,13 @@ Process **hundreds to thousands of files** across multiple departmental folders 
   ```
 
 ### Portuguese Interface (Windows)
-* **Prompt de Comando / Windows Explorer:**
-  ```cmd
-  iniciar_windows.bat
-  ```
-* **PowerShell / Windows Terminal:**
+* **PowerShell / Windows Terminal (Mesma Janela):**
   ```powershell
   .\iniciar.ps1
+  ```
+* **Command Prompt / Windows Explorer:**
+  ```cmd
+  iniciar_windows.bat
   ```
 
 ### macOS Launcher
@@ -77,14 +79,14 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ### Command Line (Automated / Headless)
 ```powershell
-# English execution (PII redaction ON by default)
+# English execution (Raw data preserved by default)
 python copilot_consolidator/app.py --auto --lang en
 
 # Portuguese execution
 python copilot_consolidator/app.py --auto --lang pt
 
-# Disable PII redaction if processing public open datasets
-python copilot_consolidator/app.py --auto --lang en --no-pii
+# Optional: Enable PII redaction (mask names, CPFs, RGs, addresses, phone)
+python copilot_consolidator/app.py --auto --lang en --redact-pii
 ```
 
 ---
@@ -95,6 +97,20 @@ To run the full unit test suite:
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
+
+---
+
+## 📚 Evolution History & Project State
+
+From an initial sequential script to a high-throughput, enterprise-grade offline consolidation pipeline:
+* **v0.1 - v1.0:** Initial sequential prototype (basic PDF/TXT extraction, no OCR, context truncation issues).
+* **v2.0 - v3.0:** Office suite support (Word, Excel, PowerPoint, CSV) + Local offline OCR engine (RapidOCR ONNX).
+* **v4.0:** Multiprocessing (`ProcessPoolExecutor`), SHA-256 disk cache, quadruple partitioning, and automated ZIP packaging.
+* **v5.0:** 100% offline (removed cloud wrappers), vector dataset export (`corpus_rag.jsonl`), DPI cache keys, and suppression of internal page breaks.
+* **v5.1:** Textual integrity engine (auto-repair of corrupted UTF-8/CP1252 mojibake, OCR space desegmentation, near-duplicate detection, pure bilingual reports).
+* **v6.0 (Current):** Console resilience on Windows (`run.bat` to eliminate CMD `START` collisions, native `start.ps1`/`iniciar.ps1` PowerShell scripts), raw sensitive data preserved by default, and configurable PII masking for names, RGs, CPFs, and addresses.
+
+👉 For the comprehensive architectural breakdown and benchmark metrics, read [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
 
 ---
 

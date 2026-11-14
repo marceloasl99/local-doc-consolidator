@@ -14,6 +14,11 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 
 ---
 
+> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
+> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
+
+---
+
 ## 🌟 Principais Recursos (v6.0)
 
 1. **🧠 OCR Local Profundo com RapidOCR (ONNX Runtime):**
@@ -38,6 +43,11 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 8. **⚡ Multicore Seguro e Cache Criptográfico:**
    - Limite de concorrência seguro (`min(4, os.cpu_count())`) para proteção de memória RAM.
    - Cache SHA-256 atômico parametrizado com DPI, limiares de OCR e flags de PII.
+
+---
+
+> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
+> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
 ---
 
@@ -87,6 +97,20 @@ Para executar a suíte de testes unitários:
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
+
+---
+
+## 📚 Histórico de Evolução & Estado Atual
+
+De um script sequencial básico a um pipeline corporativo offline de alta performance:
+* **v0.1 - v1.0:** Protótipo sequencial inicial (extração básica de PDF/TXT, sem OCR, problemas de truncamento de contexto).
+* **v2.0 - v3.0:** Suporte ao pacote Office (Word, Excel, PowerPoint, CSV) + Motor de OCR local offline (RapidOCR ONNX).
+* **v4.0:** Multiprocessamento (`ProcessPoolExecutor`), cache SHA-256 em disco, quádruplo particionamento e empacotamento ZIP automatizado.
+* **v5.0:** 100% offline (remoção de bibliotecas cloud), exportação estruturada RAG (`corpus_rag.jsonl`), cache por DPI e supressão de quebras de página internas.
+* **v5.1:** Motor de integridade textual (auto-reparo de mojibake UTF-8/CP1252, desfragmentação de palavras do OCR, detecção de quase-duplicatas e relatórios 100% bilíngues).
+* **v6.0 (Atual):** Resiliência de console no Windows (`run.bat` para evitar conflito com `START` do CMD, scripts PowerShell nativos `iniciar.ps1`/`start.ps1`), preservação de dados brutos por padrão e mascaramento configurável de PII (nomes, RGs, CPFs e endereços).
+
+👉 Para o detalhamento arquitetural completo e métricas de benchmark, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
 
 ---
 

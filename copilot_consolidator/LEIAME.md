@@ -3,7 +3,7 @@
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
 [![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Profundo-brightgreen.svg)](.)
-[![LGPD: PII Redaction](https://img.shields.io/badge/LGPD-PII%20Redaction%20ON-blue.svg)](.)
+[![Privacidade: Dados Originais Preservados](https://img.shields.io/badge/Privacidade-Dados%20Originais%20Preservados-blue.svg)](.)
 [![Performance: Multicore Paralelo](https://img.shields.io/badge/Performance-Multicore%20Paralelo-orange.svg)](.)
 [![Exportação: Markdown + JSONL RAG](https://img.shields.io/badge/Exporta%C3%A7%C3%A3o-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-blue.svg)](LICENSE)
@@ -11,6 +11,11 @@
 Ferramenta corporativa em Python, **100% local, privada e offline**, projetada para indexar, converter e consolidar volumes massivos de documentos corporativos confidenciais (PDFs nativos e escaneados, Word com capturas de tela, Excel com comprovantes embutidos, apresentações PowerPoint e fotos avulsas de documentos) em Markdown contínuo para o **Microsoft 365 Copilot** e base estruturada JSONL para **RAG local (Chroma, Qdrant, Milvus, LangChain)**.
 
 Processe **centenas a milhares de arquivos** espalhados em pastas departamentais sem nenhum vazamento para a nuvem e sem exigir privilégios de administrador no Windows ou dependências externas como Tesseract ou Poppler.
+
+---
+
+> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
+> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
 ---
 
@@ -25,8 +30,9 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
    - Desfaz erros de segmentação espacial e kerning do OCR (ex: `Aute nticacao` -> `Autenticacao`, `comprova nte` -> `comprovante`, `docu mento` -> `documento`, `estabeleci mento` -> `estabelecimento`).
 4. **🔍 Detecção de Conteúdo Quase-Duplicado (Near-Duplicates):**
    - Analisa sobreposição lexical (Jaccard / Overlap >= 80%) entre documentos distintos (versões revisadas, templates com nomes alterados) e registra avisos explícitos no `00_INDICE_MESTRE.md` e nos relatórios de auditoria para evitar alucinações no Copilot.
-5. **🛡️ Privacidade & LGPD Ativa por Padrão (Safe-by-Default):**
-   - Mascaramento automático de CPF, CNPJ, e-mails e telefones para garantir conformidade antes do upload para o Copilot na nuvem (desativável via `--no-pii` ou menu).
+5. **🛡️ Anonimização Opcional de PII (Dados Originais Preservados por Padrão):**
+   - Por padrão, preserva todos os dados na íntegra para máxima fidelidade analítica (mantém nomes, CPFs, RGs, endereços, e-mails e telefones).
+   - Anonimização ativável a qualquer momento via opção `[5] -> [9]` do menu, tecla `[P]` na tela de confirmação prévia, ou flag `--redact-pii` para ocultar registros sensíveis.
 6. **📦 Particionamento Inteligente Sem Redundância:**
    - **Markdown Contínuo (`corpus_completo.md`):** Texto limpo e fluido sem divisores intrusivos de página no meio do arquivo.
    - **Eliminação de Partes Redundantes:** Quando o corpus é menor que o limite de partição (ex: < 8 MB), suprime `corpus_parte_01.md` solteiro, economizando 50% de espaço em disco e ZIP.
@@ -40,13 +46,32 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 
 ---
 
+> 🇺🇸 *For the English version of this documentation, see [README.md](README.md).*  
+> 📜 *Para o relatório detalhado de evolução histórica (da v0.1 até a v6.0) e arquitetura técnica, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
+
+---
+
 ## 🚀 Como Executar
 
 ### Windows (Português)
-Dê dois cliques no arquivo **`iniciar_windows.bat`**.
+* **PowerShell / Windows Terminal (Na mesma janela):**
+  ```powershell
+  .\iniciar.ps1
+  ```
+* **Prompt de Comando / Windows Explorer:**
+  ```cmd
+  iniciar_windows.bat
+  ```
 
 ### Windows (Inglês)
-Dê dois cliques no arquivo **`start.bat`**.
+* **PowerShell / Windows Terminal (In-Window):**
+  ```powershell
+  .\start.ps1
+  ```
+* **Prompt de Comando / Windows Explorer:**
+  ```cmd
+  start.bat
+  ```
 
 ### macOS
 - Português: `./copilot_consolidator/iniciar_macos.command`
@@ -54,14 +79,14 @@ Dê dois cliques no arquivo **`start.bat`**.
 
 ### Linha de Comando (Modo Automatizado)
 ```powershell
-# Execução padrão (Privacidade LGPD ATIVADA, Português)
+# Execução padrão (Dados originais preservados na íntegra, Português)
 python copilot_consolidator/app.py --auto --lang pt
 
 # Execução em Inglês
 python copilot_consolidator/app.py --auto --lang en
 
-# Execução desativando máscara de PII (se documentos forem públicos)
-python copilot_consolidator/app.py --auto --lang pt --no-pii
+# Opcional: Ativar anonimização de PII (mascarar nomes, CPFs, RGs, endereços, telefones)
+python copilot_consolidator/app.py --auto --lang pt --redact-pii
 ```
 
 ---
@@ -72,6 +97,20 @@ Para executar a suíte de testes unitários:
 ```powershell
 python -m unittest discover -s copilot_consolidator/tests -v
 ```
+
+---
+
+## 📚 Histórico de Evolução & Estado Atual
+
+De um script sequencial básico a um pipeline corporativo offline de alta performance:
+* **v0.1 - v1.0:** Protótipo sequencial inicial (extração básica de PDF/TXT, sem OCR, problemas de truncamento de contexto).
+* **v2.0 - v3.0:** Suporte ao pacote Office (Word, Excel, PowerPoint, CSV) + Motor de OCR local offline (RapidOCR ONNX).
+* **v4.0:** Multiprocessamento (`ProcessPoolExecutor`), cache SHA-256 em disco, quádruplo particionamento e empacotamento ZIP automatizado.
+* **v5.0:** 100% offline (remoção de bibliotecas cloud), exportação estruturada RAG (`corpus_rag.jsonl`), cache por DPI e supressão de quebras de página internas.
+* **v5.1:** Motor de integridade textual (auto-reparo de mojibake UTF-8/CP1252, desfragmentação de palavras do OCR, detecção de quase-duplicatas e relatórios 100% bilíngues).
+* **v6.0 (Atual):** Resiliência de console no Windows (`run.bat` para evitar conflito com `START` do CMD, scripts PowerShell nativos `iniciar.ps1`/`start.ps1`), preservação de dados brutos por padrão e mascaramento configurável de PII (nomes, RGs, CPFs e endereços).
+
+👉 Para o detalhamento arquitetural completo e métricas de benchmark, consulte [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).
 
 ---
 
