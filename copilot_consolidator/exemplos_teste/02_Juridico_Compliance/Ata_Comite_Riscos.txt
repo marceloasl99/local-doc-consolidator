@@ -1,0 +1,4 @@
+ATA DE REUNIAO DO COMITE DE RISCOS E GOVERNANCA
+Data: 10/11/2026
+Deliberacao 01: Aprovado o uso do consolidador local offline com Multicore para indexacao de ate 500 arquivos.
+Deliberacao 02: Divergencia identificada no orcamento de Operacoes Industriais deve ser revisada com Fernanda Costa.

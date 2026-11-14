@@ -1,0 +1,4 @@
+Hostname;IP_VLAN;Funcao;Sistema_Operacional;Status
+SRV-APP-01;10.20.1.10;Aplicacao ERP;Windows Server 2022;Ativo
+SRV-DB-02;10.20.1.20;Banco de Dados;Oracle Linux 9;Ativo
+SRV-BKP-03;10.20.99.50;Repositorio Backup;Debian 12;Em Manutencao
