@@ -16,7 +16,7 @@
   "gerar_jsonl": true,
   "usar_pasta_timestamp": true,
   "gerar_arquivo_zip": true,
-  "mascarar_pii": true,
+  "mascarar_pii": false,
   "max_workers": 4,
   "usar_ocr_em_pdf": true,
   "usar_ocr_em_imagens_embutidas": true,

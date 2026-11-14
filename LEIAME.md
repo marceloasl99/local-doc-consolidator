@@ -3,7 +3,7 @@
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
 [![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Profundo-brightgreen.svg)](.)
-[![LGPD: PII Redaction](https://img.shields.io/badge/LGPD-PII%20Redaction%20ON-blue.svg)](.)
+[![Privacidade: Dados Originais Preservados](https://img.shields.io/badge/Privacidade-Dados%20Originais%20Preservados-blue.svg)](.)
 [![Performance: Multicore Paralelo](https://img.shields.io/badge/Performance-Multicore%20Paralelo-orange.svg)](.)
 [![Exportação: Markdown + JSONL RAG](https://img.shields.io/badge/Exporta%C3%A7%C3%A3o-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-blue.svg)](LICENSE)
@@ -25,8 +25,9 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
    - Desfaz erros de segmentação espacial e kerning do OCR (ex: `Aute nticacao` -> `Autenticacao`, `comprova nte` -> `comprovante`, `docu mento` -> `documento`, `estabeleci mento` -> `estabelecimento`).
 4. **🔍 Detecção de Conteúdo Quase-Duplicado (Near-Duplicates):**
    - Analisa sobreposição lexical (Jaccard / Overlap >= 80%) entre documentos distintos (versões revisadas, templates com nomes alterados) e registra avisos explícitos no `00_INDICE_MESTRE.md` e nos relatórios de auditoria para evitar alucinações no Copilot.
-5. **🛡️ Privacidade & LGPD Ativa por Padrão (Safe-by-Default):**
-   - Mascaramento automático de CPF, CNPJ, e-mails e telefones para garantir conformidade antes do upload para o Copilot na nuvem (desativável via `--no-pii` ou menu).
+5. **🛡️ Anonimização Opcional de PII (Dados Originais Preservados por Padrão):**
+   - Por padrão, preserva todos os dados na íntegra para máxima fidelidade analítica (mantém nomes, CPFs, RGs, endereços, e-mails e telefones).
+   - Anonimização ativável a qualquer momento via opção `[5] -> [9]` do menu, tecla `[P]` na tela de confirmação prévia, ou flag `--redact-pii` para ocultar registros sensíveis.
 6. **📦 Particionamento Inteligente Sem Redundância:**
    - **Markdown Contínuo (`corpus_completo.md`):** Texto limpo e fluido sem divisores intrusivos de página no meio do arquivo.
    - **Eliminação de Partes Redundantes:** Quando o corpus é menor que o limite de partição (ex: < 8 MB), suprime `corpus_parte_01.md` solteiro, economizando 50% de espaço em disco e ZIP.
@@ -68,14 +69,14 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 
 ### Linha de Comando (Modo Automatizado)
 ```powershell
-# Execução padrão (Privacidade LGPD ATIVADA, Português)
+# Execução padrão (Dados originais preservados na íntegra, Português)
 python copilot_consolidator/app.py --auto --lang pt
 
 # Execução em Inglês
 python copilot_consolidator/app.py --auto --lang en
 
-# Execução desativando máscara de PII (se documentos forem públicos)
-python copilot_consolidator/app.py --auto --lang pt --no-pii
+# Opcional: Ativar anonimização de PII (mascarar nomes, CPFs, RGs, endereços, telefones)
+python copilot_consolidator/app.py --auto --lang pt --redact-pii
 ```
 
 ---

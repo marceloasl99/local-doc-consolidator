@@ -30,7 +30,7 @@ A versão 4.0 comprovou a viabilidade do processamento 100% offline com RapidOCR
 
 4. **Blindagem e Segurança Corporativa (LGPD / Privacidade):**
    - Gravação atômica de cache (`.tmp` + `os.replace`).
-   - Redação opcional de PII (`--redact-pii` / `"mascarar_pii": true`): mascaramento automático por Regex de CPFs, CNPJs, e-mails e telefones.
+   - Redação opcional de PII (`--redact-pii` / `"mascarar_pii": false` por padrão para preservar dados analíticos): mascaramento configurável por Regex de nomes, CPFs, RGs, endereços, CEPs, CNPJs, e-mails e telefones.
    - Controle seguro de concorrência: `max_workers` padrão em `min(4, os.cpu_count())` para evitar pico de memória RAM em notebooks.
    - Higiene de repositório: proteção de caminhos internos da empresa via `.gitignore`.
 

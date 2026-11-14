@@ -58,21 +58,34 @@ class TestOfflinePipelineV5(unittest.TestCase):
         self.assertIn("estabelecimento", corrigido)
 
     def test_pii_redaction(self):
-        """Testa a redação e mascaramento de dados sensíveis (LGPD / Compliance)."""
+        """Testa a redação e mascaramento de dados sensíveis (LGPD / Compliance) quando a opção está ativada."""
         texto_original = (
-            "Cliente João da Silva, CPF: 123.456.789-00, CNPJ: 12.345.678/0001-90, "
+            "Cliente: João da Silva Sauro, CPF: 123.456.789-00, RG: 12.345.678-9, "
+            "CNPJ: 12.345.678/0001-90, Endereço: Rua das Flores, 123 - Apto 4, CEP: 01310-100, "
             "contato: joao.silva@empresa.com.br, telefone: (11) 98765-4321."
         )
         redigido = app.redigir_pii(texto_original)
 
         self.assertNotIn("123.456.789-00", redigido)
         self.assertNotIn("12.345.678/0001-90", redigido)
+        self.assertNotIn("12.345.678-9", redigido)
+        self.assertNotIn("Rua das Flores, 123", redigido)
+        self.assertNotIn("01310-100", redigido)
         self.assertNotIn("joao.silva@empresa.com.br", redigido)
         self.assertNotIn("98765-4321", redigido)
         self.assertIn("[CPF REDIGIDO]", redigido)
         self.assertIn("[CNPJ REDIGIDO]", redigido)
+        self.assertIn("[RG REDIGIDO]", redigido)
+        self.assertIn("[ENDEREÇO REDIGIDO]", redigido)
+        self.assertIn("[CEP REDIGIDO]", redigido)
         self.assertIn("[EMAIL REDIGIDO]", redigido)
         self.assertIn("[TELEFONE REDIGIDO]", redigido)
+        self.assertIn("[NOME REDIGIDO]", redigido)
+
+    def test_pii_default_is_disabled(self):
+        """Valida que por padrão os dados sensíveis NÃO são excluídos (preservando dados originais)."""
+        cfg_padrao = app.CONFIG_PADRAO
+        self.assertFalse(cfg_padrao.get("mascarar_pii", True), "Por padrão mascarar_pii deve ser False.")
 
     def test_csv_structured_extraction(self):
         """Valida que CSV com diferentes delimitadores é convertido em tabela Markdown."""

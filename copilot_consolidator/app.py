@@ -250,7 +250,7 @@ CONFIG_PADRAO = {
     # Segurança, Concorrência e PII (Safe-by-default para Copilot / Nuvem):
     "usar_pasta_timestamp": True,
     "gerar_arquivo_zip": True,
-    "mascarar_pii": True,
+    "mascarar_pii": False,
     "max_workers": min(4, os.cpu_count() or 4),
     # Configurações de OCR:
     "usar_ocr_em_pdf": True,
@@ -265,11 +265,16 @@ CONFIG_PADRAO = {
 
 _OCR_ENGINE = None
 
-# Expressões regulares para redação de PII (LGPD / Privacidade)
+# Expressões regulares para redação de PII (LGPD / Privacidade - Opcional)
 RE_CPF = re.compile(r'\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b')
 RE_CNPJ = re.compile(r'\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b')
+RE_RG = re.compile(r'(?i)\b(RG|R\.G\.|Identidade|Cédula de Identidade)[\s:]+([0-9A-Za-z.-]{5,14})\b')
+RE_RG_FORMATADO = re.compile(r'\b\d{1,2}\.\d{3}\.\d{3}-[\dX|x]\b')
+RE_CEP = re.compile(r'(?i)\b(?:CEP[\s:]+)?\d{5}-\d{3}\b')
 RE_EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
-RE_TELEFONE = re.compile(r'\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}|\d{4})[-.\s]?\d{4}\b')
+RE_TELEFONE = re.compile(r'(?:\+?55\s?)?(?:\(\d{2}\)|\b\d{2}\b)[-.\s]?(?:9\d{4}|\d{4})[-.\s]?\d{4}\b')
+RE_ENDERECO = re.compile(r'(?i)\b(?:Rua|Avenida|Av\.|Travessa|Alameda|Rodovia|Estrada|Praça|Praca)\s+[^,\n\r]{3,45},\s*(?:n[º°]?\s*)?\d+[A-Za-z0-9\s\-/]*')
+RE_NOME_CONTEXTUAL = re.compile(r'(?i)\b(Nome|Titular|Cliente|Favorecido|Paciente|Colaborador|Funcion[aá]rio)[\s:]+([A-ZÁÉÍÓÚÂÊÔÃÕ][a-záéíóúâêôãõç]+(?:[ \t]+[A-ZÁÉÍÓÚÂÊÔÃÕ][a-záéíóúâêôãõç]+)+)')
 
 # Padrões para correção de Mojibake (UTF-8 interpretado como CP1252/Latin-1)
 PADRAO_MOJIBAKE = re.compile(r'(?:Ã[\x80-\xbf]|Â[\x80-\xbf]|â€[“”—‘’™\x80-\xbf]|[\w]Ã[\w])')
@@ -290,13 +295,18 @@ PADRAO_PREFIXOS_OCR = re.compile(
 
 
 def redigir_pii(texto: str) -> str:
-    """Aplica anonimização local em dados sensíveis (CPF, CNPJ, E-mail, Telefone)."""
+    """Aplica anonimização local em dados sensíveis (CPF, RG, CNPJ, E-mail, Telefone, Endereços, Nomes)."""
     if not texto:
         return ""
     texto = RE_CPF.sub("[CPF REDIGIDO]", texto)
     texto = RE_CNPJ.sub("[CNPJ REDIGIDO]", texto)
+    texto = RE_RG.sub(r'\1: [RG REDIGIDO]', texto)
+    texto = RE_RG_FORMATADO.sub("[RG REDIGIDO]", texto)
+    texto = RE_ENDERECO.sub("[ENDEREÇO REDIGIDO]", texto)
+    texto = RE_CEP.sub("[CEP REDIGIDO]", texto)
     texto = RE_EMAIL.sub("[EMAIL REDIGIDO]", texto)
     texto = RE_TELEFONE.sub("[TELEFONE REDIGIDO]", texto)
+    texto = RE_NOME_CONTEXTUAL.sub(r'\1: [NOME REDIGIDO]', texto)
     return texto
 
 
@@ -1472,7 +1482,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             lbl_cpu = "Safe CPU workers" if lang == "en" else "Processos concorrentes"
             lbl_cpu_desc = f"{max_workers} processes (RAM optimized)" if lang == "en" else f"{max_workers} processos seguros (RAM otimizada)"
             lbl_pii = "PII Redaction (Privacy)" if lang == "en" else "Privacidade PII (LGPD)"
-            pii_val_conf = ("ENABLED" if cfg.get("mascarar_pii", True) else "DISABLED") if lang == "en" else ("ATIVADO" if cfg.get("mascarar_pii", True) else "DESATIVADO")
+            pii_val_conf = ("ENABLED" if cfg.get("mascarar_pii", False) else "DISABLED (Keep raw data)") if lang == "en" else ("ATIVADO" if cfg.get("mascarar_pii", False) else "DESATIVADO (Manter dados originais)")
             lbl_split_mb = "Split by MB limit" if lang == "en" else "Divisão por limite MB"
             split_mb_val = (f"YES ({cfg.get('limite_mb_por_parte', 8.0)} MB)" if cfg.get("dividir_por_tamanho", True) else "NO") if lang == "en" else (f"SIM ({cfg.get('limite_mb_por_parte', 8.0)} MB)" if cfg.get("dividir_por_tamanho", True) else "NÃO")
             lbl_single = "Single file output" if lang == "en" else "Gerar arquivo único"
@@ -1497,14 +1507,14 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                 print(" [ENTER] or [C] Confirm and Start Processing")
                 print(" [M] Change MB splitting limit (e.g., 8, 50, 100, 200 MB)")
                 print(" [W] Adjust number of CPU workers (current: " + str(max_workers) + ")")
-                print(" [P] Toggle PII Redaction (Privacy / LGPD anonymization)")
+                print(" [P] Toggle PII Redaction (Names, CPF, RG, Addresses, Phone)")
                 print(" [Z] Toggle .ZIP archive generation")
                 print(" [V] Cancel and return to main menu")
             else:
                 print(" [ENTER] ou [C] Confirmar e Iniciar o Processamento")
                 print(" [M] Alterar limite de separação em MB (ex: 8, 50, 100, 200 MB)")
                 print(" [W] Ajustar número de processos concorrentes (atual: " + str(max_workers) + ")")
-                print(" [P] Alternar anonimização de PII (LGPD: CPF, CNPJ, E-mail)")
+                print(" [P] Alternar anonimização de PII (Excluir Nomes, CPF, RG, Endereços)")
                 print(" [Z] Alternar geração de arquivo compactado .ZIP")
                 print(" [V] Cancelar e voltar ao menu")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
@@ -1549,9 +1559,9 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"{t('arquivos_localizados', cfg):<22}: {Cor.NEGRITO}{total}{Cor.RESET} ({stats['tamanho_formatado']})")
     workers_label = f"{max_workers} processos seguros" if lang == "pt" else f"{max_workers} safe workers"
     print(f"{t('multicore_paralelo', cfg):<22}: {Cor.VERDE}{t('ativado', cfg)} ({workers_label}){Cor.RESET}")
-    pii_ativo = cfg.get("mascarar_pii", True)
+    pii_ativo = cfg.get("mascarar_pii", False)
     pii_label = "Privacidade PII (LGPD)" if lang == "pt" else "PII Redaction (Privacy)"
-    pii_desc = ("ATIVADO (CPF/CNPJ/E-mail/Tel mascarados)" if pii_ativo else "DESATIVADO") if lang == "pt" else ("ENABLED (CPF/CNPJ/Email/Phone masked)" if pii_ativo else "DISABLED")
+    pii_desc = ("ATIVADO (Nomes, CPF, RG, Endereços, Tel mascarados)" if pii_ativo else "DESATIVADO (Dados originais preservados)") if lang == "pt" else ("ENABLED (Names, CPF, RG, Addresses, Phone masked)" if pii_ativo else "DISABLED (Raw data preserved)")
     print(f"{pii_label:<22}: {Cor.VERDE if pii_ativo else Cor.AMARELO}{pii_desc}{Cor.RESET}")
     print(f"{t('pasta_execucao', cfg):<22}: {pasta_destino}\n")
 
@@ -1925,7 +1935,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         dt_lbl = "Date/Time" if idioma == "en" else "Data/Hora"
         tok_lbl = f"(~{tokens_estimados:,} estimated heuristic tokens)" if idioma == "en" else f"(~{tokens_estimados:,} tokens estimados via heurística)"
         workers_lbl = f"{max_workers} safe workers" if idioma == "en" else f"{max_workers} processos seguros"
-        pii_lbl = ("ENABLED (CPF/CNPJ/Email/Phone masked)" if cfg.get("mascarar_pii", True) else "DISABLED") if idioma == "en" else ("ATIVADO (CPF/CNPJ/E-mail/Tel mascarados)" if cfg.get("mascarar_pii", True) else "DESATIVADO")
+        pii_lbl = ("ENABLED (Names, CPF, RG, Addresses, Phone masked)" if cfg.get("mascarar_pii", False) else "DISABLED (Raw data preserved)") if idioma == "en" else ("ATIVADO (Nomes, CPF, RG, Endereços, Tel mascarados)" if cfg.get("mascarar_pii", False) else "DESATIVADO (Dados originais preservados)")
         mojibake_lbl = f"- **Corrupted encoding fixes (Mojibake auto-repair):** {total_mojibake} occurrences corrected" if idioma == "en" else f"- **Correções de codificação corrompida (Mojibake reparado):** {total_mojibake} ocorrências corrigidas"
 
         linhas_rel = [
@@ -2229,7 +2239,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[7] Generate Folder/Departmental Consolidated     : {'YES' if cfg.get('gerar_por_pasta_raiz', True) else 'NO'}")
             print(f"[8] Generate Structured RAG Dataset (corpus_rag)  : {'YES' if cfg.get('gerar_jsonl', True) else 'NO'}")
             print(f"\n{Cor.NEGRITO}--- Privacy, Security & Concurrency ---{Cor.RESET}")
-            print(f"[9] PII Redaction (Mask CPF, CNPJ, Email, Phone)  : {'ENABLED' if cfg.get('mascarar_pii', True) else 'DISABLED'}")
+            print(f"[9] PII Redaction (Mask Names, CPF, RG, Addresses, etc.) : {'ENABLED' if cfg.get('mascarar_pii', False) else 'DISABLED'}")
             print(f"[10] Safe Concurrent CPU Workers (RAM Protect)    : {workers_atual} workers (max: {num_cpus})")
             print(f"[11] Generate Compressed Package (.ZIP)           : {'YES' if cfg.get('gerar_arquivo_zip', True) else 'NO'}")
             print(f"\n{Cor.NEGRITO}--- Local Optical Character Recognition (OCR) ---{Cor.RESET}")
@@ -2253,7 +2263,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[7] Gerar Consolidado por Pasta Departamental      : {'SIM' if cfg.get('gerar_por_pasta_raiz', True) else 'NÃO'}")
             print(f"[8] Gerar Base Estruturada RAG (corpus_rag.jsonl) : {'SIM' if cfg.get('gerar_jsonl', True) else 'NÃO'}")
             print(f"\n{Cor.NEGRITO}--- Privacidade, Segurança e Concorrência ---{Cor.RESET}")
-            print(f"[9] Anonimização de PII (LGPD: CPF, CNPJ, Email)  : {'ATIVADO' if cfg.get('mascarar_pii', True) else 'DESATIVADO'}")
+            print(f"[9] Anonimização de PII (Excluir Nomes, CPF, RG, Endereços) : {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}")
             print(f"[10] Processos Concorrentes Seguros (Anti-Estouro): {workers_atual} workers (máx: {num_cpus})")
             print(f"[11] Gerar Pacote Compactado (.ZIP) ao final      : {'SIM' if cfg.get('gerar_arquivo_zip', True) else 'NÃO'}")
             print(f"\n{Cor.NEGRITO}--- Reconhecimento Óptico de Caracteres (OCR Local) ---{Cor.RESET}")
@@ -2298,7 +2308,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "8":
             cfg["gerar_jsonl"] = not cfg.get("gerar_jsonl", True)
         elif op == "9":
-            cfg["mascarar_pii"] = not cfg.get("mascarar_pii", True)
+            cfg["mascarar_pii"] = not cfg.get("mascarar_pii", False)
         elif op == "10":
             prompt_w = f"Safe workers (1 to {num_cpus}): " if lang == "en" else f"Workers seguros (1 a {num_cpus}): "
             nw = input(f"\n{prompt_w}").strip()
@@ -2378,8 +2388,8 @@ def menu_principal():
         lbl_workers_unit = "safe workers" if lang == "en" else "workers seguros"
         print(f"  • {t('multicore_paralelo', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('multicore', True) else Cor.AMARELO + t('desativado', cfg)} ({workers_atual} {lbl_workers_unit}){Cor.RESET}")
         lbl_pii = "PII Redaction (Privacy)" if lang == "en" else "Privacidade PII (LGPD)"
-        val_pii = ("ENABLED" if cfg.get('mascarar_pii', True) else "DISABLED") if lang == "en" else ("ATIVADO" if cfg.get('mascarar_pii', True) else "DESATIVADO")
-        print(f"  • {lbl_pii:<25}: {Cor.VERDE if cfg.get('mascarar_pii', True) else Cor.AMARELO}{val_pii}{Cor.RESET}")
+        val_pii = ("ENABLED" if cfg.get('mascarar_pii', False) else "DISABLED (Keep raw data)") if lang == "en" else ("ATIVADO" if cfg.get('mascarar_pii', False) else "DESATIVADO (Manter dados originais)")
+        print(f"  • {lbl_pii:<25}: {Cor.VERDE if cfg.get('mascarar_pii', False) else Cor.AMARELO}{val_pii}{Cor.RESET}")
         print(f"  • {t('ocr_pdf_img', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_pdf', True) else Cor.AMARELO + t('desativado', cfg)}{Cor.RESET}")
         print(f"  • {t('ocr_embutidas', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_imagens_embutidas', True) else Cor.AMARELO + t('desativado', cfg)} (Word/Excel/PPTX){Cor.RESET}")
 
