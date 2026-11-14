@@ -1,4 +1,4 @@
-# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.1
+# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.2
 
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
@@ -51,6 +51,7 @@ Em `saida_copilot/processado_AAAAMMDD_HHMMSS/` (cópia sempre atualizada em `sai
 | `00_INDICE_MESTRE.md` | Só o catálogo (ID, documento, tipo, observações) |
 | `por_pasta/*.md` | Um arquivo por pasta/departamento, para perguntas sobre um tema específico |
 | `corpus_rag.jsonl` | Uma linha por página, com metadados, para bancos vetoriais (Chroma, Qdrant, LangChain) |
+| `imagens/` | Pasta ordenada com diagramas e esquemas salvos (`docXXX_pYY_figZZ.png`) referenciados na base |
 | `relatorio_auditoria.md` | Falhas, documentos sem texto, OCR com baixa confiança, duplicados, versões semelhantes e formatos ignorados |
 | `PROMPT_PARA_COPILOT.txt` | Regras de resposta para colar no chat |
 

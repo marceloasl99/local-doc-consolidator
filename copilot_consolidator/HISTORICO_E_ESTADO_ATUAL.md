@@ -1,9 +1,9 @@
 # Relatório Histórico Completo & Estado Atual do Projeto
 ## Projeto: Local Document Consolidator (`local-doc-consolidator`)
 **Repositório Oficial:** `marceloasl99/local-doc-consolidator`  
-**Versão Atual:** `v6.1`  
+**Versão Atual:** `v6.2`  
 **Última Atualização:** Novembro de 2026  
-**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 19/19 Passando  
+**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 21/21 Passando  
 
 ---
 
@@ -29,9 +29,10 @@ flowchart TD
     v4["v4.0: Paralelismo e Quádruplo Output<br/>• ProcessPoolExecutor multicore<br/>• Cache SHA-256 em disco<br/>• Fatiamento em MB, pasta e 1:1<br/>• Compactação ZIP automática"]
     v5["v5.0: Pipeline RAG e Blindagem Offline<br/>• Remoção de dependências cloud (markitdown)<br/>• Exportação corpus_rag.jsonl<br/>• Cache por DPI e limiar confiança (0.50)<br/>• Supressão de quebras de página internas"]
     v51["v5.1: Integridade Textual e Auto-Reparo<br/>• Auto-reparo de Mojibake (CP1252/UTF-8)<br/>• Desfragmentação de palavras do OCR<br/>• Detecção de quase-duplicatas (Jaccard >= 80%)<br/>• Relatórios 100% bilíngues dedicados"]
-    v6["v6.0: Resiliência de Console e Fidelidade Padrão<br/>• Inicializador run.bat (elimina colisão no CMD)<br/>• Shells nativos PowerShell (start.ps1 / iniciar.ps1)<br/>• Preservação de dados brutos por padrão (PII OFF)<br/>• Suíte de testes 9/9 validada"]
+    v6["v6.0 - v6.1: Resiliência de Console, Qualidade e Multi-Launcher<br/>• Inicializador run.bat (elimina colisão no CMD)<br/>• Shells nativos PowerShell (start.ps1 / iniciar.ps1)<br/>• Preservação de dados brutos por padrão (PII OFF)<br/>• Correção de 8 bugs de extração e menu em 5 opções"]
+    v62["v6.2: Detecção, Salvamento e Referenciamento de Diagramas<br/>• Separação de diagramas/esquemas em pasta imagens/<br/>• Ordenação docXXX_pYY_figZZ.png<br/>• Cards de referência e catálogo no 00_INDICE_MESTRE<br/>• Metadados no corpus_rag.jsonl e empacotamento ZIP"]
 
-    v0 --> v2 --> v4 --> v5 --> v51 --> v6
+    v0 --> v2 --> v4 --> v5 --> v51 --> v6 --> v62
 ```
 
 ### 2.1 Versões 0.1 a 1.0 — O Protótipo Inicial
@@ -128,29 +129,44 @@ flowchart TD
 
 ---
 
+### 2.8 Versão 6.2 (Atual) — Detecção, Salvamento Físico e Referenciamento de Diagramas e Esquemas Técnicos
+- **Objetivo:** Resolver a limitação estrutural de modelos OCR em diagramas, fluxogramas, esquemas de engenharia e arquiteturas visuais, onde textos soltos perdem relações espaciais e a imagem física é necessária para consulta humana ou multimodal.
+- **Implementações Principais:**
+  - **Classificador Heurístico de Imagens:** Distingue páginas escaneadas densas de texto corrido (mantidas no OCR puro) de diagramas, gráficos e esquemas técnicos (baixa/média densidade textual com caixas e setas, ou traços vetoriais contrastantes).
+  - **Pasta Ordenada Dedicada (`imagens/`):** Salvamento automático dos diagramas detectados com nomenclatura unívoca e ordenada lexicograficamente: `doc{ID}_p{PAGINA}_fig{INDICE}.png` (ou `s{SLIDE}` / `aba{ABA}`).
+  - **Cards Rastreáveis no Markdown:** Injeção de blocos padronizados com link visual relativo `![Diagrama](imagens/...)`, metadados de resolução, documento de origem, página/slide e transcrição dos rótulos internos identificados.
+  - **Catálogo Mestre de Figuras:** Tabela consolidada em `00_INDICE_MESTRE.md` indexando todas as figuras salvas por ordem numérica com link direto e descrição resumida.
+  - **Anotações RAG:** Metadados estruturados `"imagens_referenciadas"` incorporados linha a linha no `corpus_rag.jsonl`.
+  - **Instruções ao Copilot:** Regra 6 adicionada aos prompts de sistema (`PROMPT_PARA_COPILOT.txt` e `COPILOT_PROMPT.txt`), instruindo a IA a citar o arquivo de imagem exato quando a resposta tratar de arquitetura ou esquemas.
+  - **Suíte de Testes Expandida (21/21):** Testes unitários dedicados cobrindo classificação de diagramas, integridade de links, geração de pastas e compatibilidade regressiva.
+
+---
+
 ## 3. Comparativo de Recursos por Versão
 
-| Funcionalidade / Característica | v0.1 - v1.0 | v2.0 - v3.0 | v4.0 | v5.0 | v5.1 | v6.0 (Atual) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Extração de Texto PDF Nativo** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Suporte a DOCX, PPTX, XLSX, CSV** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Motor OCR Offline (RapidOCR ONNX)** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Índice Mestre com IDs `[001]`** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Paralelismo Multiprocessado** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Cache SHA-256 em Disco** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Particionamento em 4 Formatos** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Compactação Automática em ZIP** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Exportação Estruturada `corpus_rag.jsonl`**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Filtragem de Aspecto e Confiança OCR**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Auto-Reparo de Mojibake (UTF-8/CP1252)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Desfragmentação de Palavras do OCR** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Detecção de Quase-Duplicatas ($\ge 80\%$)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Eliminação de Fatias Redundantes** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Relatórios Puros PT / EN** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Launcher `run.bat` (Sem Conflito no CMD)**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Shells Nativos PowerShell (`.ps1`)** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Dados Brutos Preservados por Padrão** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Redação Opcional de Nomes/RGs/Endereços**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Funcionalidade / Característica | v0.1 - v1.0 | v2.0 - v3.0 | v4.0 | v5.0 | v5.1 | v6.0 - v6.1 | v6.2 (Atual) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Extração de Texto PDF Nativo** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Suporte a DOCX, PPTX, XLSX, CSV** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Motor OCR Offline (RapidOCR ONNX)** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Índice Mestre com IDs `[001]`** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Paralelismo Multiprocessado** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Cache SHA-256 em Disco** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Particionamento em 4 Formatos** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Compactação Automática em ZIP** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Exportação Estruturada `corpus_rag.jsonl`**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Filtragem de Aspecto e Confiança OCR**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Auto-Reparo de Mojibake (UTF-8/CP1252)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Desfragmentação de Palavras do OCR** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Detecção de Quase-Duplicatas ($\ge 80\%$)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Eliminação de Fatias Redundantes** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Relatórios Puros PT / EN** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Launcher `run.bat` (Sem Conflito no CMD)**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Shells Nativos PowerShell (`.ps1`)** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Dados Brutos Preservados por Padrão** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Redação Opcional de Nomes/RGs/Endereços**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Salvamento de Diagramas e Esquemas em Pasta**| ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Catálogo de Figuras no Índice Mestre** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
 

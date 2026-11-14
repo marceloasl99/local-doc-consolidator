@@ -263,5 +263,116 @@ class TestCorrecoesV61(unittest.TestCase):
         self.assertTrue(all(len(b.encode("utf-8")) <= 1200 for parte in partes for _, b in parte))
 
 
+class TestRecursosV62(unittest.TestCase):
+    """Testes da nova funcionalidade de salvar e referenciar diagramas/esquemas na v6.2."""
+
+    def test_classificar_imagem_diagrama(self):
+        from PIL import Image, ImageDraw
+        import io
+
+        # 1. Imagem que é diagrama geométrico (linhas e caixas)
+        im_diag = Image.new("RGB", (600, 400), (255, 255, 255))
+        d = ImageDraw.Draw(im_diag)
+        d.rectangle([50, 50, 200, 150], outline=(0, 0, 0), width=4)
+        d.rectangle([350, 50, 500, 150], outline=(0, 0, 0), width=4)
+        d.line([200, 100, 350, 100], fill=(0, 0, 0), width=4)
+        buf = io.BytesIO()
+        im_diag.save(buf, format="PNG")
+        eh_diag, motivo, rotulos, png, dims = app.classificar_e_extrair_diagrama(buf.getvalue(), min_dim_diag=150)
+        self.assertTrue(eh_diag, "Desenho geométrico com linhas deve ser identificado como diagrama/esquema.")
+        self.assertIsNotNone(png)
+        self.assertEqual(dims, (600, 400))
+
+        # 2. Ícone pequeno (< 50px) deve ser rejeitado
+        im_pequena = Image.new("RGB", (40, 40), (255, 255, 255))
+        buf_p = io.BytesIO()
+        im_pequena.save(buf_p, format="PNG")
+        eh_p, motivo_p, _, _, _ = app.classificar_e_extrair_diagrama(buf_p.getvalue(), min_dim_diag=150)
+        self.assertFalse(eh_p)
+        self.assertEqual(motivo_p, "small_icon")
+
+        # 3. Banner/divisor com proporção extrema (> 12:1) deve ser rejeitado
+        im_banner = Image.new("RGB", (800, 30), (255, 255, 255))
+        buf_b = io.BytesIO()
+        im_banner.save(buf_b, format="PNG")
+        eh_b, motivo_b, _, _, _ = app.classificar_e_extrair_diagrama(buf_b.getvalue(), min_dim_diag=150, prop_max=12.0)
+        self.assertFalse(eh_b)
+        self.assertEqual(motivo_b, "divider_or_banner")
+
+    def test_pipeline_com_salvamento_de_diagramas(self):
+        """Valida que diagramas são salvos em imagens/, catalogados e referenciados no Markdown."""
+        from PIL import Image, ImageDraw
+        import io
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            entrada = Path(tmp) / "Projeto"
+            entrada.mkdir(parents=True)
+
+            # Cria um diagrama sintético
+            im = Image.new("RGB", (500, 350), (255, 255, 255))
+            d = ImageDraw.Draw(im)
+            d.rectangle([40, 40, 200, 150], outline=(0, 0, 0), width=4)
+            d.rectangle([280, 40, 440, 150], outline=(0, 0, 0), width=4)
+            d.line([200, 95, 280, 95], fill=(0, 0, 0), width=4)
+            im.save(entrada / "fluxo_arquitetura.png")
+
+            # 1. Executa com salvar_diagramas_em_pasta=True
+            cfg_ativo = dict(
+                app.CONFIG_PADRAO,
+                idioma="pt",
+                pastas_entrada=[str(entrada)],
+                pasta_saida=str(Path(tmp) / "saida_com_diag"),
+                max_workers=2,
+                salvar_diagramas_em_pasta=True,
+                gerar_arquivo_zip=True,
+            )
+            res_ativo = app.executar_pipeline(cfg_ativo, pausar_no_final=False, interativo=False)
+            self.assertIsNotNone(res_ativo)
+            pasta_ativo = res_ativo["pasta"]
+
+            # Valida que a pasta imagens/ existe e contém o arquivo ordenado
+            pasta_img = pasta_ativo / "imagens"
+            self.assertTrue(pasta_img.exists(), "A pasta imagens/ deve ser criada.")
+            arquivos_img = list(pasta_img.glob("*.png"))
+            self.assertEqual(len(arquivos_img), 1, "Deve existir exatamente 1 diagrama salvo.")
+            self.assertEqual(arquivos_img[0].name, "doc001_p01_fig01.png")
+
+            # Valida card e link no corpus_completo.md
+            corpus_md = (pasta_ativo / "corpus_completo.md").read_text(encoding="utf-8")
+            self.assertIn("![Diagrama:", corpus_md)
+            self.assertIn("imagens/doc001_p01_fig01.png", corpus_md)
+            self.assertIn("Figura / Diagrama Referenciado", corpus_md)
+
+            # Valida tabela no 00_INDICE_MESTRE.md
+            indice_md = (pasta_ativo / "00_INDICE_MESTRE.md").read_text(encoding="utf-8")
+            self.assertIn("Catálogo de Diagramas e Esquemas Técnicos", indice_md)
+            self.assertIn("FIG-001", indice_md)
+            self.assertIn("doc001_p01_fig01.png", indice_md)
+
+            # Valida registro no corpus_rag.jsonl
+            rag_linhas = (pasta_ativo / "corpus_rag.jsonl").read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(rag_linhas), 1)
+            rag_item = json.loads(rag_linhas[0])
+            self.assertIn("imagens_referenciadas", rag_item)
+            self.assertEqual(rag_item["imagens_referenciadas"][0]["arquivo"], "imagens/doc001_p01_fig01.png")
+
+            # 2. Executa com salvar_diagramas_em_pasta=False
+            cfg_inativo = dict(
+                app.CONFIG_PADRAO,
+                idioma="pt",
+                pastas_entrada=[str(entrada)],
+                pasta_saida=str(Path(tmp) / "saida_sem_diag"),
+                max_workers=2,
+                salvar_diagramas_em_pasta=False,
+                gerar_arquivo_zip=False,
+            )
+            res_inativo = app.executar_pipeline(cfg_inativo, pausar_no_final=False, interativo=False)
+            pasta_inativo = res_inativo["pasta"]
+            self.assertFalse((pasta_inativo / "imagens").exists(), "A pasta imagens/ NÃO deve ser criada quando desativada.")
+            corpus_inativo = (pasta_inativo / "corpus_completo.md").read_text(encoding="utf-8")
+            self.assertNotIn("imagens/doc001_p01_fig01.png", corpus_inativo)
+
+
 if __name__ == "__main__":
     unittest.main()

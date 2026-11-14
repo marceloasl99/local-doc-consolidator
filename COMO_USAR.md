@@ -70,6 +70,7 @@ Na pasta do resultado (`copilot_consolidator/saida_copilot/ultimo_processamento`
 | `corpus_parte_01.md`, `_02`... | Só existe se a base for grande demais: anexe as partes. |
 | `PROMPT_PARA_COPILOT.txt` | Abra, copie o texto e cole no chat do Copilot junto com o anexo. |
 | `relatorio_auditoria.md` | Mostra o que deu errado (arquivos que não foram lidos, etc.). |
+| `imagens/` | Pasta com diagramas e esquemas técnicos salvos para consulta visual. |
 
 Depois é só perguntar. O Copilot vai citar os documentos pelo número, por exemplo **[004] Contrato.pdf**.
 

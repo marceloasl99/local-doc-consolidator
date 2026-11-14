@@ -13,7 +13,7 @@ goto coletar
 :fim_args
 chcp 65001 >nul
 cd /d "%BASE%"
-title Document Consolidator for Copilot v6.1
+title Document Consolidator for Copilot v6.2
 
 set "VENV_PY=%BASE%.venv\Scripts\python.exe"
 if exist "%VENV_PY%" if exist "%BASE%.venv\.installed_ok" goto run_app

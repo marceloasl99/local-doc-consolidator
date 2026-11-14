@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.1)
-Local Document Consolidator for Microsoft Copilot & RAG (v6.1)
+Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.2)
+Local Document Consolidator for Microsoft Copilot & RAG (v6.2)
 
 Objetivo: ler grandes volumes de documentos heterogêneos (PDF, Word, Excel, PowerPoint,
 CSV, texto, HTML, e-mails e imagens) e gerar UMA base Markdown única, organizada e
@@ -53,9 +53,9 @@ for _fluxo in (sys.stdout, sys.stderr):
 if platform.system() == "Windows":
     os.system("")  # habilita sequências ANSI no console do Windows
 
-VERSAO = "6.1"
+VERSAO = "6.2"
 # Incrementar sempre que a lógica de extração mudar: invalida o cache antigo automaticamente.
-VERSAO_EXTRATOR = "6.1.0"
+VERSAO_EXTRATOR = "6.2.0"
 
 
 class Cor:
@@ -139,6 +139,8 @@ _PROMPT_LINHAS_PT = [
     "4. Transcreva números, valores, datas, códigos e nomes exatamente como aparecem no texto original.",
     "5. Trechos indicados como OCR vieram de imagens ou digitalizações e podem conter erros de leitura; "
     "avise quando a resposta depender deles.",
+    "6. Quando a resposta envolver arquiteturas, fluxogramas, esquemas ou diagramas técnicos, cite a figura correspondente "
+    "(exemplo: \"conforme diagrama em imagens/doc001_p03_fig01.png\") e a página original para que o usuário possa consultar o desenho visual.",
 ]
 
 _PROMPT_LINHAS_EN = [
@@ -154,6 +156,8 @@ _PROMPT_LINHAS_EN = [
     "4. Reproduce numbers, amounts, dates, codes and names exactly as written in the source text.",
     "5. Passages marked as OCR come from images or scans and may contain recognition errors; "
     "say so when your answer depends on them.",
+    "6. When an answer involves architectures, flowcharts, schematics or technical diagrams, cite the corresponding file "
+    "in the images folder (e.g. \"according to diagram in imagens/doc001_p03_fig01.png\") and the original page so the user can inspect the visual drawing.",
 ]
 
 PROMPT_SISTEMA_COPILOT_PT = "\n\n".join(_PROMPT_LINHAS_PT)
@@ -225,6 +229,9 @@ CONFIG_PADRAO = {
     # OCR
     "usar_ocr_em_pdf": True,
     "usar_ocr_em_imagens_embutidas": True,
+    "salvar_diagramas_em_pasta": True,
+    "pasta_diagramas": "imagens",
+    "min_dimensao_diagrama": 150,
     "dpi_ocr_pdf": 200,
     "min_dimensao_imagem_ocr": 150,
     "limiar_confianca_ocr": 0.50,
@@ -920,24 +927,153 @@ def executar_ocr_em_bytes(
     return texto, sum(scores) / len(scores), "ok", None
 
 
-class _ContextoOCR:
-    """Acumula estatísticas de OCR de um documento e evita repetir imagens idênticas (logos)."""
+def classificar_e_extrair_diagrama(
+    img_bytes: bytes,
+    min_dim_diag: int = 150,
+    prop_max: float = 12.0,
+    limiar_conf: float = 0.40,
+) -> tuple[bool, str, list[str], bytes | None, tuple[int, int]]:
+    """
+    Avalia se uma imagem é um diagrama/esquema/gráfico técnico (que não seja apenas texto corrido e não seja ruído).
+    Retorna: (eh_diagrama, motivo, rotulos_ocr, png_bytes, (largura, altura))
+    """
+    from PIL import Image, ImageFilter, ImageStat, UnidentifiedImageError
+    try:
+        im = Image.open(io.BytesIO(img_bytes))
+        im.load()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return False, "unsupported", [], None, (0, 0)
 
-    def __init__(self, min_dim, limiar, prop_max):
+    w, h = im.size
+    razao_aspecto = max(w, h) / max(min(w, h), 1)
+    if razao_aspecto > prop_max:
+        return False, "divider_or_banner", [], None, (w, h)
+    if max(w, h) < min_dim_diag or min(w, h) < 50:
+        return False, "small_icon", [], None, (w, h)
+
+    png_bytes, motivo = _preparar_imagem_ocr(img_bytes, min_dim=min_dim_diag, proporcao_max_aspecto=prop_max)
+    if not png_bytes:
+        return False, "invalid", [], None, (w, h)
+
+    engine = obter_ocr_worker()
+    itens_ocr = []
+    if engine:
+        try:
+            itens_ocr = _itens_resultado_ocr(engine(png_bytes))
+        except Exception:
+            itens_ocr = []
+
+    area_total = max(w * h, 1)
+    area_texto = 0
+    rotulos = []
+    for box, txt, sc in itens_ocr:
+        try:
+            sc = float(sc)
+        except (TypeError, ValueError):
+            sc = 1.0
+        txt_str = str(txt).strip()
+        if txt_str and sc >= limiar_conf:
+            rotulos.append(txt_str)
+            try:
+                xs = [p[0] for p in box]
+                ys = [p[1] for p in box]
+                larg_b = max(xs) - min(xs)
+                alt_b = max(ys) - min(ys)
+                area_texto += larg_b * alt_b
+            except Exception:
+                pass
+
+    cobertura_texto = area_texto / area_total
+    qtd_linhas = len(rotulos)
+
+    # 1. Página escaneada densa de texto corrido (contrato, ata, livro): não é diagrama
+    if cobertura_texto >= 0.35 and qtd_linhas >= 16:
+        return False, "scanned_text_page", rotulos, png_bytes, (w, h)
+
+    # 2. Diagrama/fluxograma com caixas e rótulos
+    if 1 <= qtd_linhas < 16 and cobertura_texto < 0.35:
+        return True, "diagrama_com_rotulos", rotulos, png_bytes, (w, h)
+
+    # 3. Esquema visual com pouco ou nenhum texto legível (circuitos, CAD, wireframe, arquitetura sem texto)
+    try:
+        im_gray = im.convert("L")
+        bordas = im_gray.filter(ImageFilter.FIND_EDGES)
+        stat = ImageStat.Stat(bordas)
+        stddev = stat.stddev[0]
+        mean = stat.mean[0]
+        if (stddev >= 8.0 or mean >= 2.0) and min(w, h) >= 120:
+            return True, "esquema_visual", rotulos, png_bytes, (w, h)
+    except Exception:
+        pass
+
+    return False, "decoracao_ou_foto", rotulos, png_bytes, (w, h)
+
+
+class _ContextoOCR:
+    """Acumula estatísticas de OCR de um documento, detecta diagramas e evita repetir imagens idênticas (logos)."""
+
+    def __init__(
+        self,
+        min_dim: int,
+        limiar: float,
+        prop_max: float,
+        salvar_diagramas: bool = False,
+        min_dim_diagrama: int = 150,
+        pasta_cache: Path | None = None,
+    ):
         self.min_dim = min_dim
         self.limiar = limiar
         self.prop_max = prop_max
+        self.salvar_diagramas = salvar_diagramas
+        self.min_dim_diagrama = min_dim_diagrama
+        self.pasta_cache = Path(pasta_cache) if pasta_cache else None
         self.diag = {"ok": 0, "empty": 0, "error": 0}
         self.scores: list[float] = []
         self.qtd = 0
         self._cache: dict[str, tuple] = {}
         self.erros: list[str] = []
+        self.diagramas: list[dict] = []
+        self.contador_figuras = 0
+        self._hashes_vistos: set[str] = set()
 
-    def ocr(self, img_bytes: bytes) -> str | None:
-        """Retorna o texto da imagem, ou None se não houver texto ou se a imagem já apareceu."""
+    def ocr(self, img_bytes: bytes, num_local: int = 1, tipo_local: str = "p") -> str | None:
+        """Retorna o texto da imagem, marcador de diagrama, ou None se não houver texto ou se a imagem já apareceu."""
+        if not img_bytes:
+            return None
         h = hashlib.sha256(img_bytes).hexdigest()
-        if h in self._cache:
-            return None  # imagem repetida no mesmo documento (logo, carimbo): não duplica o texto
+        if h in self._hashes_vistos:
+            return None  # imagem repetida no mesmo documento (logo, carimbo): não duplica
+        self._hashes_vistos.add(h)
+
+        if self.salvar_diagramas:
+            eh_diag, motivo, rotulos, png_bytes, dims = classificar_e_extrair_diagrama(
+                img_bytes, self.min_dim_diagrama, self.prop_max, self.limiar
+            )
+            if eh_diag:
+                self.contador_figuras += 1
+                if self.pasta_cache and png_bytes:
+                    try:
+                        pasta_blobs = self.pasta_cache / "blobs"
+                        pasta_blobs.mkdir(parents=True, exist_ok=True)
+                        (pasta_blobs / f"{h}.png").write_bytes(png_bytes)
+                    except Exception:
+                        pass
+                marcador = f"<!--DIAGRAMA_REF:{h}:{tipo_local}:{num_local}:{self.contador_figuras}-->"
+                info_diag = {
+                    "id_blob": h,
+                    "tipo_local": tipo_local,
+                    "num_local": num_local,
+                    "indice": self.contador_figuras,
+                    "largura": dims[0],
+                    "altura": dims[1],
+                    "rotulos": rotulos,
+                    "marcador": marcador,
+                }
+                self.diagramas.append(info_diag)
+                self.diag["ok"] += 1
+                self.qtd += 1
+                return marcador
+
         res = executar_ocr_em_bytes(img_bytes, self.min_dim, self.limiar, self.prop_max)
         self._cache[h] = res
         txt, conf, st, err = res
@@ -973,8 +1109,11 @@ def extrair_imagem_avulsa(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
+    salvar_diagramas: bool = True,
+    min_dim_diagrama: int = 150,
+    pasta_cache: Path | None = None,
 ) -> tuple[str, int, int, dict, list, float, dict]:
-    """Processa imagens avulsas via OCR (inclui TIFF com várias páginas)."""
+    """Processa imagens avulsas via OCR e identifica diagramas/esquemas técnicos."""
     from PIL import Image
     diag = {"ok": 0, "empty": 0, "error": 0}
     dados = caminho.read_bytes()
@@ -998,14 +1137,17 @@ def extrair_imagem_avulsa(
         return "", 0, 1, {"aviso": aviso}, [], 0.0, diag
 
     meta_info = {"formato": formato, "resolucao": f"{w}x{h} px"}
-    # imagens avulsas costumam ser recibos/prints pequenos: limite mínimo mais tolerante
-    ctx = _ContextoOCR(min(min_dim, 40), limiar_confianca, proporcao_max_aspecto)
+    ctx = _ContextoOCR(
+        min(min_dim, 40), limiar_confianca, proporcao_max_aspecto,
+        salvar_diagramas=salvar_diagramas, min_dim_diagrama=min_dim_diagrama, pasta_cache=pasta_cache
+    )
     blocos, paginas_rag = [], []
     for idx, quadro in enumerate(quadros, start=1):
-        txt = ctx.ocr(quadro)
+        txt = ctx.ocr(quadro, num_local=idx, tipo_local="p")
         if txt:
             blocos.append(txt)
             paginas_rag.append({"pagina": idx, "texto": txt})
+    meta_info["diagramas"] = ctx.diagramas
     return "\n\n".join(blocos), ctx.qtd, len(quadros), meta_info, paginas_rag, ctx.confianca, ctx.diag
 
 
@@ -1146,6 +1288,9 @@ def extrair_pdf_hibrido(
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
     remover_repetidos: bool = True,
+    salvar_diagramas: bool = True,
+    min_dim_diagrama: int = 150,
+    pasta_cache: Path | None = None,
 ) -> tuple[str, int, int, dict, list, float, dict]:
     """Lê o texto nativo do PDF e aplica OCR em páginas escaneadas e imagens embutidas."""
     try:
@@ -1172,7 +1317,7 @@ def extrair_pdf_hibrido(
     except Exception:
         pass
 
-    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto)
+    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto, salvar_diagramas=salvar_diagramas, min_dim_diagrama=min_dim_diagrama, pasta_cache=pasta_cache)
     doc = pymupdf.open(caminho_pdf)
     try:
         total_paginas = len(doc)
@@ -1228,7 +1373,7 @@ def extrair_pdf_hibrido(
                 texto_ocr = None
                 try:
                     pix = pagina.get_pixmap(dpi=dpi)
-                    texto_ocr = ctx.ocr(pix.tobytes("png"))
+                    texto_ocr = ctx.ocr(pix.tobytes("png"), num_local=pagina.number + 1, tipo_local="p")
                 except Exception as e:
                     ctx.diag["error"] += 1
                     if len(ctx.erros) < 5:
@@ -1250,10 +1395,13 @@ def extrair_pdf_hibrido(
                             continue
                         if not info or not info.get("image"):
                             continue
-                        txt_img = ctx.ocr(info["image"])
+                        txt_img = ctx.ocr(info["image"], num_local=pagina.number + 1, tipo_local="p")
                         if txt_img:
-                            rotulo = tx(lang, "Imagem embutida — texto via OCR", "Embedded image — OCR text")
-                            partes.append(citar_ocr(rotulo, txt_img))
+                            if "<!--DIAGRAMA_REF:" in txt_img:
+                                partes.append(txt_img)
+                            else:
+                                rotulo = tx(lang, "Imagem embutida — texto via OCR", "Embedded image — OCR text")
+                                partes.append(citar_ocr(rotulo, txt_img))
                 texto_pagina = "\n\n".join(partes)
 
             textos_paginas.append(normalizar_espacos(texto_pagina))
@@ -1264,6 +1412,7 @@ def extrair_pdf_hibrido(
         paginas_rag = [{"pagina": i, "texto": p} for i, p in enumerate(textos_paginas, start=1) if p.strip()]
         conteudo = "\n\n".join(p for p in textos_paginas if p.strip())
 
+        meta_info["diagramas"] = ctx.diagramas
         if paginas_ocr:
             meta_info["paginas_ocr"] = f"{paginas_ocr}/{total_paginas}"
         if not conteudo.strip():
@@ -1295,6 +1444,9 @@ def extrair_docx_contextual(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
+    salvar_diagramas: bool = True,
+    min_dim_diagrama: int = 150,
+    pasta_cache: Path | None = None,
 ) -> tuple[str, int, int, dict, list, float, dict]:
     """Extrai parágrafos, títulos, listas, tabelas e imagens (OCR) na ordem em que aparecem."""
     import docx
@@ -1305,7 +1457,7 @@ def extrair_docx_contextual(
 
     documento = docx.Document(str(caminho))
     partes: list[str] = []
-    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto)
+    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto, salvar_diagramas=salvar_diagramas, min_dim_diagrama=min_dim_diagrama, pasta_cache=pasta_cache)
     meta_info = {}
     try:
         cp = documento.core_properties
@@ -1334,9 +1486,12 @@ def extrair_docx_contextual(
             alvo = documento.part.related_parts.get(r_id)
             blob = getattr(alvo, "blob", None)
             if blob:
-                txt = ctx.ocr(blob)
+                txt = ctx.ocr(blob, num_local=1, tipo_local="p")
                 if txt:
-                    partes.append(citar_ocr(rotulo_img, txt))
+                    if "<!--DIAGRAMA_REF:" in txt:
+                        partes.append(txt)
+                    else:
+                        partes.append(citar_ocr(rotulo_img, txt))
 
     for filho in documento.element.body.iterchildren():
         if isinstance(filho, CT_P):
@@ -1382,6 +1537,7 @@ def extrair_docx_contextual(
 
     texto_final = normalizar_espacos("\n\n".join(partes))
     paginas_rag = [{"pagina": 1, "texto": texto_final}] if texto_final else []
+    meta_info["diagramas"] = ctx.diagramas
     return texto_final, ctx.qtd, 1, meta_info, paginas_rag, ctx.confianca, ctx.diag
 
 
@@ -1421,11 +1577,14 @@ def extrair_xlsx_contextual(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
+    salvar_diagramas: bool = True,
+    min_dim_diagrama: int = 150,
+    pasta_cache: Path | None = None,
 ) -> tuple[str, int, int, dict, list, float, dict]:
     """Lê cada aba como tabela Markdown (valores calculados) e aplica OCR nas imagens da aba."""
     import openpyxl
 
-    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto)
+    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto, salvar_diagramas=salvar_diagramas, min_dim_diagrama=min_dim_diagrama, pasta_cache=pasta_cache)
     lbl_aba = tx(lang, "Planilha", "Sheet")
     lbl_oculta = tx(lang, "oculta", "hidden")
     lbl_formula = tx(lang, "fórmula", "formula")
@@ -1483,9 +1642,12 @@ def extrair_xlsx_contextual(
                         dados = im._data()
                     except Exception:
                         continue
-                    txt = ctx.ocr(dados)
+                    txt = ctx.ocr(dados, num_local=idx_aba, tipo_local="aba")
                     if txt:
-                        blocos_aba.append(citar_ocr(tx(lang, "Imagem na planilha — texto via OCR", "Image in sheet — OCR text"), txt))
+                        if "<!--DIAGRAMA_REF:" in txt:
+                            blocos_aba.append(txt)
+                        else:
+                            blocos_aba.append(citar_ocr(tx(lang, "Imagem na planilha — texto via OCR", "Image in sheet — OCR text"), txt))
             if blocos_aba:
                 oculta = f" ({lbl_oculta})" if getattr(ws, "sheet_state", "visible") != "visible" else ""
                 bloco = f"### {lbl_aba}: {ws.title}{oculta}\n\n" + "\n\n".join(blocos_aba)
@@ -1495,6 +1657,7 @@ def extrair_xlsx_contextual(
     finally:
         wb.close()
 
+    meta_info["diagramas"] = ctx.diagramas
     return "\n\n".join(partes), ctx.qtd, total_abas, meta_info, paginas_rag, ctx.confianca, ctx.diag
 
 
@@ -1564,12 +1727,15 @@ def extrair_pptx_contextual(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
+    salvar_diagramas: bool = True,
+    min_dim_diagrama: int = 150,
+    pasta_cache: Path | None = None,
 ) -> tuple[str, int, int, dict, list, float, dict]:
     """Extrai, por slide: título, textos (com níveis), tabelas, dados de gráficos, imagens (OCR) e notas."""
     from pptx import Presentation
 
     prs = Presentation(str(caminho))
-    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto)
+    ctx = _ContextoOCR(min_dim, limiar_confianca, proporcao_max_aspecto, salvar_diagramas=salvar_diagramas, min_dim_diagrama=min_dim_diagrama, pasta_cache=pasta_cache)
     partes, paginas_rag = [], []
     meta_info = {}
     try:
@@ -1616,9 +1782,12 @@ def extrair_pptx_contextual(
                 except Exception:
                     blob = None
                 if blob:
-                    txt = ctx.ocr(blob)
+                    txt = ctx.ocr(blob, num_local=idx_s, tipo_local="s")
                     if txt:
-                        corpo.append("\n" + citar_ocr(tx(lang, "Imagem do slide — texto via OCR", "Slide image — OCR text"), txt) + "\n")
+                        if "<!--DIAGRAMA_REF:" in txt:
+                            corpo.append("\n" + txt + "\n")
+                        else:
+                            corpo.append("\n" + citar_ocr(tx(lang, "Imagem do slide — texto via OCR", "Slide image — OCR text"), txt) + "\n")
 
         try:
             if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
@@ -1632,6 +1801,7 @@ def extrair_pptx_contextual(
         partes.append(bloco)
         paginas_rag.append({"pagina": idx_s, "texto": bloco})
 
+    meta_info["diagramas"] = ctx.diagramas
     return "\n\n".join(partes), ctx.qtd, len(prs.slides), meta_info, paginas_rag, ctx.confianca, ctx.diag
 
 
@@ -1653,6 +1823,8 @@ def parametros_extracao(cfg: dict) -> dict:
         "idioma": obter_idioma(cfg),
         "ocr_pdf": bool(cfg.get("usar_ocr_em_pdf", True)),
         "ocr_img": bool(cfg.get("usar_ocr_em_imagens_embutidas", True)),
+        "salvar_diag": bool(cfg.get("salvar_diagramas_em_pasta", True)),
+        "min_dim_diag": int(cfg.get("min_dimensao_diagrama", 150)),
         "dpi": int(cfg.get("dpi_ocr_pdf", 200)),
         "min_dim": int(cfg.get("min_dimensao_imagem_ocr", 150)),
         "limiar": round(float(cfg.get("limiar_confianca_ocr", 0.50)), 3),
@@ -1701,6 +1873,8 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
         limiar = float(cfg.get("limiar_confianca_ocr", 0.50))
         prop_max = float(cfg.get("proporcao_max_aspecto_ocr", 20.0))
         ocr_img = bool(cfg.get("usar_ocr_em_imagens_embutidas", True))
+        salvar_diag = bool(cfg.get("salvar_diagramas_em_pasta", True))
+        min_dim_diag = int(cfg.get("min_dimensao_diagrama", 150))
         vazio = {"ok": 0, "empty": 0, "error": 0}
 
         if ext == ".pdf":
@@ -1708,21 +1882,30 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 arq, usar_ocr=bool(cfg.get("usar_ocr_em_pdf", True)), dpi=int(cfg.get("dpi_ocr_pdf", 200)),
                 min_dim=min_dim, limiar_confianca=limiar, proporcao_max_aspecto=prop_max, lang=lang,
                 remover_repetidos=bool(cfg.get("remover_cabecalhos_rodapes", True)),
+                salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag, pasta_cache=pasta_cache,
             )
         elif ext in EXTENSOES_IMAGEM:
             if cfg.get("usar_ocr_em_pdf", True):
                 res = extrair_imagem_avulsa(arq, min_dim=min_dim, limiar_confianca=limiar,
-                                            proporcao_max_aspecto=prop_max, lang=lang)
+                                            proporcao_max_aspecto=prop_max, lang=lang,
+                                            salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                            pasta_cache=pasta_cache)
             else:
                 res = ("", 0, 1, {"aviso": tx(lang, "OCR desativado.", "OCR is disabled.")}, [], 0.0, vazio)
         elif ext == ".docx":
-            res = extrair_docx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang)
+            res = extrair_docx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                          salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                          pasta_cache=pasta_cache)
         elif ext in (".xlsx", ".xlsm"):
-            res = extrair_xlsx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang)
+            res = extrair_xlsx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                           salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                           pasta_cache=pasta_cache)
         elif ext == ".xls":
             res = extrair_xls_legado(arq, lang)
         elif ext == ".pptx":
-            res = extrair_pptx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang)
+            res = extrair_pptx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                          salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                          pasta_cache=pasta_cache)
         elif ext == ".csv":
             txt = extrair_csv_estruturado(arq)
             res = (txt, 0, 1, {}, [{"pagina": 1, "texto": txt}] if txt else [], 0.0, vazio)
@@ -1732,6 +1915,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
 
         conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca, diag = res
         meta_info = dict(meta_info or {})
+        diagramas_encontrados = meta_info.pop("diagramas", [])
 
         conteudo, n_mojibake = reparar_mojibake(conteudo or "")
         for p in paginas_rag:
@@ -1762,6 +1946,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
             "paginas_rag": paginas_rag,
             "diag_ocr": diag,
             "mojibake_repairs": n_mojibake,
+            "diagramas": diagramas_encontrados,
             "data_cache": datetime.now().isoformat(),
         }
 
@@ -2038,6 +2223,75 @@ def detectar_quase_duplicados(docs: list[dict], limite_docs: int = 4000) -> list
     return pares
 
 
+def formatar_diagramas_no_texto(
+    texto: str,
+    diagramas: list[dict],
+    doc: dict,
+    lang: str,
+    em_subpasta: bool = False,
+    salvar_diag: bool = True,
+) -> str:
+    """Substitui marcadores <!--DIAGRAMA_REF:...--> por cards estruturados com links para a pasta ordenada."""
+    if not diagramas or not texto:
+        return texto
+    for diag in diagramas:
+        marcador = diag.get("marcador")
+        if not marcador or marcador not in texto:
+            continue
+        if salvar_diag and diag.get("rel_path"):
+            caminho_rel = diag["rel_path_sub"] if em_subpasta else diag["rel_path"]
+            tipo_loc = diag.get("tipo_local", "p")
+            num_loc = diag.get("num_local", 1)
+            loc_nome = tx(lang, "Página", "Page") if tipo_loc == "p" else (tx(lang, "Slide", "Slide") if tipo_loc == "s" else tx(lang, "Aba", "Sheet"))
+            w, h = diag.get("largura", 0), diag.get("altura", 0)
+            dims_str = f"{w}x{h} px" if w and h else ""
+            rotulos = diag.get("rotulos", [])
+            rot_str = " · ".join(rotulos[:12]) if rotulos else ""
+
+            linhas_card = [
+                f"> 📐 **[{tx(lang, 'Figura / Diagrama Referenciado', 'Referenced Diagram / Figure')}: `{caminho_rel}`]**",
+                f"> - **{tx(lang, 'Origem', 'Source')}:** `{doc.get('rel', doc.get('nome', ''))}` ({loc_nome} {num_loc})",
+            ]
+            if dims_str:
+                linhas_card.append(f"> - **{tx(lang, 'Dimensões', 'Dimensions')}:** {dims_str}")
+            if rot_str:
+                linhas_card.append(f"> - **{tx(lang, 'Rótulos / Textos detectados:', 'Detected labels / text:')}** *{rot_str}*")
+            linhas_card.append(">")
+            linhas_card.append(f"> ![{tx(lang, 'Diagrama', 'Diagram')}: {doc.get('nome', '')} - {loc_nome} {num_loc}]({caminho_rel})")
+            card_md = "\n".join(linhas_card)
+            texto = texto.replace(marcador, card_md)
+        else:
+            rotulos = diag.get("rotulos", [])
+            if rotulos:
+                lbl = tx(lang, "Imagem embutida — texto via OCR", "Embedded image — OCR text")
+                texto = texto.replace(marcador, citar_ocr(lbl, "\n".join(rotulos)))
+            else:
+                texto = texto.replace(marcador, "")
+    return texto
+
+
+def render_catalogo_diagramas(catalogo: list[tuple[dict, dict]], lang: str) -> str:
+    """Gera tabela consolidada de todos os diagramas e esquemas encontrados."""
+    if not catalogo:
+        return ""
+    saida = [
+        f"### {tx(lang, 'Catálogo de Diagramas e Esquemas Técnicos', 'Catalog of Technical Diagrams and Schematics')} ({len(catalogo)} {tx(lang, 'encontrados', 'found')})",
+        "",
+        f"| Ref | {tx(lang, 'Documento de Origem', 'Source Document')} | {tx(lang, 'Localização', 'Location')} | {tx(lang, 'Arquivo da Imagem', 'Image File')} | {tx(lang, 'Rótulos / Descrição', 'Labels / Description')} |",
+        "| :---: | :--- | :---: | :--- | :--- |",
+    ]
+    for n, (d, diag) in enumerate(catalogo, start=1):
+        tipo_loc = diag.get("tipo_local", "p")
+        num_loc = diag.get("num_local", 1)
+        loc_nome = tx(lang, "Pág.", "Page") if tipo_loc == "p" else (tx(lang, "Slide", "Slide") if tipo_loc == "s" else tx(lang, "Aba", "Sheet"))
+        rel_link = f"[`{diag.get('rel_path', '')}`]({diag.get('rel_path', '')})"
+        rotulos = " · ".join(diag.get("rotulos", [])[:6])
+        desc = f"*{escapar_celula(rotulos)}*" if rotulos else f"*{tx(lang, 'Esquema visual sem texto', 'Visual schematic without text')}*"
+        saida.append(f"| `FIG-{n:03d}` | {d.get('id', '')} {escapar_celula(d.get('nome', ''))} | {loc_nome} {num_loc} | {rel_link} | {desc} |")
+    saida.append("")
+    return "\n".join(saida) + "\n"
+
+
 def _linha_tipo_doc(doc: dict, lang: str) -> str:
     m = doc["meta"]
     ext = doc["ext"]
@@ -2065,10 +2319,12 @@ def _linha_tipo_doc(doc: dict, lang: str) -> str:
         if conf:
             txt_ocr += f", {tx(lang, 'confiança média', 'average confidence')} {conf * 100:.0f}%"
         partes.append(txt_ocr)
+    if m.get("diagramas"):
+        partes.append(f"**{tx(lang, 'Diagramas', 'Diagrams')}:** {len(m['diagramas'])}")
     return " · ".join(partes)
 
 
-def render_documento(doc: dict, lang: str, omitir_duplicados: bool = True) -> str:
+def render_documento(doc: dict, lang: str, omitir_duplicados: bool = True, em_subpasta: bool = False, salvar_diag: bool = True) -> str:
     m = doc["meta"]
     meta_info = m.get("meta_info", {}) or {}
     linhas = [f"## {doc['id']} {doc['nome']}", ""]
@@ -2094,7 +2350,8 @@ def render_documento(doc: dict, lang: str, omitir_duplicados: bool = True) -> st
         linhas.append(tx(lang, f"*(Conteúdo omitido para evitar redundância: consulte o documento {doc['dup_de']}.)*",
                          f"*(Content omitted to avoid redundancy: see document {doc['dup_de']}.)*"))
     elif conteudo:
-        linhas.append(conteudo)
+        conteudo_fmt = formatar_diagramas_no_texto(conteudo, m.get("diagramas", []), doc, lang, em_subpasta, salvar_diag)
+        linhas.append(conteudo_fmt)
     else:
         linhas.append(tx(lang, "*(Nenhum texto extraível neste documento.)*", "*(No extractable text in this document.)*"))
     linhas += ["", f"*[{tx(lang, 'Fim do documento', 'End of document')} {doc['id']}]*", "", "---", ""]
@@ -2258,14 +2515,53 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
     """Grava todos os arquivos de saída. Retorna ([(caminho, descricao)], info)."""
     lang = obter_idioma(cfg)
     omitir = bool(cfg.get("omitir_duplicados", True))
+    salvar_diag = bool(cfg.get("salvar_diagramas_em_pasta", True))
+    nome_pasta_diag = cfg.get("pasta_diagramas", "imagens")
+    pasta_diag = pasta_destino / nome_pasta_diag
+    pasta_saida_base = resolver_caminho(cfg.get("pasta_saida", "./saida_copilot"))
+    pasta_cache = pasta_saida_base / ".cache_extracao"
+    blobs_dir = pasta_cache / "blobs"
+
     gerados: list[tuple[Path, str]] = []
     info = {"partes": 0}
 
-    blocos = [(d, render_documento(d, lang, omitir)) for d in docs]
+    total_diag_salvos = 0
+    catalogo_diagramas = []
+
+    if salvar_diag:
+        pasta_diag.mkdir(parents=True, exist_ok=True)
+        for antigo in pasta_diag.glob("*.png"):
+            antigo.unlink(missing_ok=True)
+
+        for d in docs:
+            m = d["meta"]
+            for diag in m.get("diagramas", []):
+                doc_num = d["num"]
+                tipo_loc = diag.get("tipo_local", "p")
+                num_loc = diag.get("num_local", 1)
+                idx_fig = diag.get("indice", 1)
+                nome_arq = f"doc{doc_num:03d}_{tipo_loc}{num_loc:02d}_fig{idx_fig:02d}.png"
+                dest_file = pasta_diag / nome_arq
+                src_blob = blobs_dir / f"{diag['id_blob']}.png"
+                if src_blob.exists():
+                    try:
+                        shutil.copy2(src_blob, dest_file)
+                        total_diag_salvos += 1
+                    except Exception:
+                        pass
+                diag["nome_arquivo"] = nome_arq
+                diag["rel_path"] = f"{nome_pasta_diag}/{nome_arq}"
+                diag["rel_path_sub"] = f"../{nome_pasta_diag}/{nome_arq}"
+                if not (d["dup_de"] and omitir):
+                    catalogo_diagramas.append((d, diag))
+
+    blocos = [(d, render_documento(d, lang, omitir, em_subpasta=False, salvar_diag=salvar_diag)) for d in docs]
     total_chars = sum(len(b) for _, b in blocos)
     resumo["tokens"] = total_chars // 4
 
     indice = render_indice(docs, lang)
+    if catalogo_diagramas:
+        indice += "\n" + render_catalogo_diagramas(catalogo_diagramas, lang)
     preambulo = render_preambulo(lang, resumo)
 
     def gravar(caminho: Path, conteudo: str, desc: str):
@@ -2312,8 +2608,9 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
 
     if cfg.get("gerar_por_pasta_raiz", True) and docs:
         grupos: dict[str, list[tuple[dict, str]]] = {}
-        for d, b in blocos:
-            grupos.setdefault(d["grupo"], []).append((d, b))
+        for d in docs:
+            b_sub = render_documento(d, lang, omitir, em_subpasta=True, salvar_diag=salvar_diag)
+            grupos.setdefault(d["grupo"], []).append((d, b_sub))
         for i, (grupo, lista) in enumerate(grupos.items(), start=1):
             titulo = f" — {tx(lang, 'Pasta', 'Folder')}: {grupo}"
             cab = render_preambulo(lang, dict(resumo, docs=len(lista), grupos=1,
@@ -2337,9 +2634,10 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
                    tx(lang, f"lote {k}", f"batch {k}"))
 
     if cfg.get("gerar_individual_por_arquivo", False) and docs:
-        for d, b in blocos:
+        for d in docs:
+            b_ind = render_documento(d, lang, omitir, em_subpasta=True, salvar_diag=salvar_diag)
             nome = sanitizar_nome_arquivo(f"{d['id'].strip('[]')}_{d['nome']}") + ".md"
-            gravar(pasta_destino / "individual" / nome, b, d["rel"])
+            gravar(pasta_destino / "individual" / nome, b_ind, d["rel"])
 
     if cfg.get("gerar_jsonl", True):
         caminho = pasta_destino / "corpus_rag.jsonl"
@@ -2348,21 +2646,39 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
                 if d["dup_de"] and omitir:
                     continue
                 m = d["meta"]
+                diagramas_doc = m.get("diagramas", [])
                 paginas = m.get("paginas_rag") or ([{"pagina": 1, "texto": m.get("conteudo", "")}] if m.get("conteudo") else [])
                 for p in paginas:
-                    f.write(json.dumps({
+                    pag_num = p.get("pagina", 1)
+                    imgs_rag = [
+                        {
+                            "arquivo": diag.get("rel_path", ""),
+                            "rotulos": diag.get("rotulos", []),
+                            "largura": diag.get("largura", 0),
+                            "altura": diag.get("altura", 0),
+                        }
+                        for diag in diagramas_doc if diag.get("num_local") == pag_num and diag.get("rel_path")
+                    ]
+                    txt_p = formatar_diagramas_no_texto(p.get("texto", ""), diagramas_doc, d, lang, em_subpasta=False, salvar_diag=salvar_diag)
+                    registro = {
                         "id": d["id"],
                         "arquivo": d["nome"],
                         "caminho_relativo": d["rel"],
                         "departamento": d["grupo"],
                         "tipo": nome_tipo(d["ext"], lang),
-                        "pagina": p.get("pagina", 1),
+                        "pagina": pag_num,
                         "total_paginas": m.get("total_paginas", 1),
                         "metadados": {k: v for k, v in (m.get("meta_info") or {}).items() if k in _ROTULOS_META},
                         "semelhante_a": d["semelhantes"],
-                        "texto": p.get("texto", ""),
-                    }, ensure_ascii=False) + "\n")
+                        "texto": txt_p,
+                    }
+                    if imgs_rag:
+                        registro["imagens_referenciadas"] = imgs_rag
+                    f.write(json.dumps(registro, ensure_ascii=False) + "\n")
         gerados.append((caminho, tx(lang, "base vetorial para RAG (uma linha por página)", "RAG dataset (one line per page)")))
+
+    if salvar_diag and total_diag_salvos > 0:
+        gerados.append((pasta_diag, tx(lang, f"pasta de diagramas ({total_diag_salvos} imagens)", f"diagrams folder ({total_diag_salvos} images)")))
 
     nome_prompt = "COPILOT_PROMPT.txt" if lang == "en" else "PROMPT_PARA_COPILOT.txt"
     gravar(pasta_destino / nome_prompt, PROMPT_SISTEMA_COPILOT_EN if lang == "en" else PROMPT_SISTEMA_COPILOT_PT,
@@ -3049,10 +3365,11 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         print(f" [17] {tx(lang, 'Resolução do OCR em PDF (DPI)', 'PDF OCR resolution (DPI)'):<46}: {cfg.get('dpi_ocr_pdf', 200)}")
         print(f" [18] {tx(lang, 'Tamanho mínimo de imagem para OCR (px)', 'Minimum image size for OCR (px)'):<46}: {cfg.get('min_dimensao_imagem_ocr', 150)}")
         print(f" [19] {tx(lang, 'Confiança mínima do OCR (0.05 a 0.99)', 'Minimum OCR confidence (0.05 to 0.99)'):<46}: {float(cfg.get('limiar_confianca_ocr', 0.5)):.2f}")
+        print(f" [20] {tx(lang, 'Salvar diagramas/esquemas em pasta (imagens/)', 'Save diagrams/schematics to folder (imagens/)'):<46}: {sn('salvar_diagramas_em_pasta')}")
 
         print(f"\n {Cor.NEGRITO}{tx(lang, 'Privacidade e desempenho', 'Privacy and performance')}{Cor.RESET}")
-        print(f" [20] {tx(lang, 'Mascarar dados pessoais (CPF, RG, nomes...)', 'Mask personal data (CPF, RG, names...)'):<46}: {sn('mascarar_pii', False)}")
-        print(f" [21] {tx(lang, 'Processos paralelos', 'Parallel workers'):<46}: {cfg.get('max_workers')} ({tx(lang, 'máx.', 'max')} {num_cpus})")
+        print(f" [21] {tx(lang, 'Mascarar dados pessoais (CPF, RG, nomes...)', 'Mask personal data (CPF, RG, names...)'):<46}: {sn('mascarar_pii', False)}")
+        print(f" [22] {tx(lang, 'Processos paralelos', 'Parallel workers'):<46}: {cfg.get('max_workers')} ({tx(lang, 'máx.', 'max')} {num_cpus})")
         print(linha(char="-"))
         print(f"  [P] {tx(lang, 'Restaurar configuração padrão', 'Restore default settings')}   [0] {tx(lang, 'Voltar', 'Back')}")
         print(linha())
@@ -3062,7 +3379,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
                     "5": "dividir_por_quantidade", "7": "gerar_individual_por_arquivo", "8": "gerar_jsonl",
                     "9": "gerar_arquivo_zip", "10": "usar_pasta_timestamp", "12": "omitir_duplicados",
                     "13": "remover_cabecalhos_rodapes", "15": "usar_ocr_em_pdf", "16": "usar_ocr_em_imagens_embutidas",
-                    "20": "mascarar_pii"}
+                    "20": "salvar_diagramas_em_pasta", "21": "mascarar_pii"}
         if op in ("0", ""):
             break
         if op in alternar:
@@ -3109,7 +3426,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             v = _ler_numero("0.05 - 0.99: ", float, 0.05, 0.99)
             if v:
                 cfg["limiar_confianca_ocr"] = v
-        elif op == "21":
+        elif op == "22":
             v = _ler_numero(tx(lang, f"Processos (1 a {num_cpus}): ", f"Workers (1 to {num_cpus}): "), int, 1, num_cpus)
             if v:
                 cfg["max_workers"] = v

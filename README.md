@@ -75,6 +75,7 @@ Output goes to `copilot_consolidator/saida_copilot/ultimo_processamento/` (plus 
 | `COPILOT_PROMPT.txt` | Answering rules to paste into the chat |
 | `audit_report.md` | What failed, documents without text, low-confidence OCR, duplicates, skipped files |
 | `corpus_rag.jsonl` | One record per page for vector databases (Chroma, Qdrant, LangChain) |
+| `imagens/` | Ordered folder with saved diagrams and schematics (`docXXX_pYY_figZZ.png`) referenced in the text |
 
 Each document inside the base looks like this:
 
