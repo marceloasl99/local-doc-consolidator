@@ -43,10 +43,24 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 ## 🚀 Como Executar
 
 ### Windows (Português)
-Dê dois cliques no arquivo **`iniciar_windows.bat`**.
+* **PowerShell / Windows Terminal (Na mesma janela):**
+  ```powershell
+  .\iniciar.ps1
+  ```
+* **Prompt de Comando / Windows Explorer:**
+  ```cmd
+  iniciar_windows.bat
+  ```
 
 ### Windows (Inglês)
-Dê dois cliques no arquivo **`start.bat`**.
+* **PowerShell / Windows Terminal (In-Window):**
+  ```powershell
+  .\start.ps1
+  ```
+* **Prompt de Comando / Windows Explorer:**
+  ```cmd
+  start.bat
+  ```
 
 ### macOS
 - Português: `./copilot_consolidator/iniciar_macos.command`

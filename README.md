@@ -49,13 +49,26 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ## 🛠️ Quick Start
 
-### English Launcher (Windows)
-Double-click **`start.bat`** (in root or in `copilot_consolidator/`).  
-On first run, it automatically creates a virtual environment (`.venv`), installs local libraries, and launches the English menu.
+### English Interface (Windows)
+* **PowerShell / Windows Terminal (Current Window):**
+  ```powershell
+  .\start.ps1
+  ```
+* **Command Prompt / Windows Explorer:**
+  ```cmd
+  start.bat
+  ```
+  *(Runs natively in the active console window with 100% English menus, options, and status lines).*
 
-### Portuguese Launcher (Windows)
-Double-click **`iniciar_windows.bat`** (in root or in `copilot_consolidator/`).  
-Launches the Brazilian Portuguese interface.
+### Portuguese Interface (Windows)
+* **PowerShell / Windows Terminal (Mesma Janela):**
+  ```powershell
+  .\iniciar.ps1
+  ```
+* **Command Prompt / Windows Explorer:**
+  ```cmd
+  iniciar_windows.bat
+  ```
 
 ### macOS Launcher
 - English: `./copilot_consolidator/start_macos.command`

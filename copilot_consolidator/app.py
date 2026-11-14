@@ -108,7 +108,7 @@ I18N = {
         "op_recarregar": "[4] Recarregar lista de pastas do arquivo 'pastas.txt'",
         "op_config": "[5] Configurar opções (Tamanhos/MB, Workers, PII, OCR, RAG JSONL)",
         "op_limpar_cache": "[6] Limpar cache de extração SHA-256 (forçar releitura completa)",
-        "op_idioma": "[L] Idioma / Language (Atual: Português)",
+        "op_idioma": "[L] Idioma / Language (Atual: Português - Selecione para alternar)",
         "op_sair": "[0] Sair",
         "prompt_opcao": "Digite o número da opção desejada: ",
         "sem_pastas": "[!] Nenhuma pasta configurada! Adicione pastas na opção [2] ou no arquivo pastas.txt.",
@@ -182,7 +182,7 @@ I18N = {
         "op_recarregar": "[4] Reload folder list from 'pastas.txt'",
         "op_config": "[5] Configure options (Sizes/MB, Workers, PII, OCR, RAG JSONL)",
         "op_limpar_cache": "[6] Clear SHA-256 extraction cache (force full re-extraction)",
-        "op_idioma": "[L] Language / Idioma (Current: English)",
+        "op_idioma": "[L] Language / Idioma (Current: English - Select to toggle)",
         "op_sair": "[0] Exit",
         "prompt_opcao": "Enter desired option: ",
         "sem_pastas": "[!] No folder configured! Add folders in option [2] or in pastas.txt.",
@@ -435,7 +435,11 @@ def obter_ocr_worker():
 
 def limpar_tela():
     if "--auto" not in sys.argv:
-        os.system("cls" if platform.system() == "Windows" else "clear")
+        try:
+            sys.stdout.write("\033[2J\033[H")
+            sys.stdout.flush()
+        except Exception:
+            os.system("cls" if platform.system() == "Windows" else "clear")
 
 
 def resolver_caminho(p_str: str) -> Path:
@@ -1415,7 +1419,8 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     total = len(arquivos)
 
     if sem_permissao:
-        print(f"{Cor.AMARELO}[Aviso] {len(sem_permissao)} arquivos/pastas ignorados por falta de permissão de leitura.{Cor.RESET}")
+        msg_perm = f"[Notice] {len(sem_permissao)} files/folders ignored due to missing read permissions." if lang == "en" else f"[Aviso] {len(sem_permissao)} arquivos/pastas ignorados por falta de permissão de leitura."
+        print(f"{Cor.AMARELO}{msg_perm}{Cor.RESET}")
 
     if total == 0:
         print(f"{Cor.VERMELHO}{t('sem_arquivos', cfg)}{Cor.RESET}")
@@ -1446,7 +1451,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         while True:
             limpar_tela()
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
-            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING (v5.0)" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL (v5.0)"
+            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING (v5.1)" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL (v5.1)"
             print(f"{Cor.TITULO}   {titulo_conf}{Cor.RESET}")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}\n")
 
@@ -1455,26 +1460,44 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             print(f"  • {t('pastas_monitoradas', cfg):<25}: {len(pastas)}")
             print(f"  • {t('arquivos_localizados', cfg):<25}: {Cor.VERDE}{Cor.NEGRITO}{stats['total_arquivos']}{Cor.RESET}")
             print(f"  • {t('volume_proc', cfg):<25}: {Cor.AMARELO}{Cor.NEGRITO}{stats['tamanho_formatado']}{Cor.RESET}")
-            print(f"  • Format breakdown:")
+            lbl_breakdown = "Format breakdown:" if lang == "en" else "Distribuição por formato:"
+            lbl_files = "files" if lang == "en" else "arquivos"
+            print(f"  • {lbl_breakdown}")
             for ext, info in sorted(stats["por_extensao"].items(), key=lambda x: x[1]["qtd"], reverse=True):
-                print(f"     - {ext.upper():<6} : {info['qtd']:>3} files ({formatar_tamanho_bytes(info['bytes'])})")
+                print(f"     - {ext.upper():<6} : {info['qtd']:>3} {lbl_files} ({formatar_tamanho_bytes(info['bytes'])})")
 
             lbl_cfg = "Current Execution Settings:" if lang == "en" else "Configurações desta Execução:"
             print(f"\n {Cor.NEGRITO}{lbl_cfg}{Cor.RESET}")
-            print(f"  • Destination folder      : {pasta_destino}")
-            print(f"  • Safe CPU workers        : {max_workers} processes (RAM optimized)")
-            print(f"  • PII Redaction (LGPD)    : {'ENABLED' if cfg.get('mascarar_pii', False) else 'DISABLED'}")
-            print(f"  • Split by MB limit       : {'YES (' + str(cfg.get('limite_mb_por_parte', 8.0)) + ' MB)' if cfg.get('dividir_por_tamanho', True) else 'NO'}")
-            print(f"  • Single file output      : {'YES (corpus_completo.md)' if cfg.get('gerar_arquivo_unico', True) else 'NO'}")
-            print(f"  • RAG dataset (.JSONL)    : {'YES (corpus_rag.jsonl)' if cfg.get('gerar_jsonl', True) else 'NO'}")
-            print(f"  • Compress to .ZIP        : {'YES' if cfg.get('gerar_arquivo_zip', True) else 'NO'}")
-            print(f"  • OCR in PDF and Images   : {'ENABLED (DPI ' + str(cfg.get('dpi_ocr_pdf', 200)) + ' | Min ' + str(cfg.get('min_dimensao_imagem_ocr', 150)) + 'px)' if cfg.get('usar_ocr_em_pdf', True) else 'DISABLED'}")
+            lbl_dest = "Destination folder" if lang == "en" else "Pasta de destino"
+            lbl_cpu = "Safe CPU workers" if lang == "en" else "Processos concorrentes"
+            lbl_cpu_desc = f"{max_workers} processes (RAM optimized)" if lang == "en" else f"{max_workers} processos seguros (RAM otimizada)"
+            lbl_pii = "PII Redaction (Privacy)" if lang == "en" else "Privacidade PII (LGPD)"
+            pii_val_conf = ("ENABLED" if cfg.get("mascarar_pii", True) else "DISABLED") if lang == "en" else ("ATIVADO" if cfg.get("mascarar_pii", True) else "DESATIVADO")
+            lbl_split_mb = "Split by MB limit" if lang == "en" else "Divisão por limite MB"
+            split_mb_val = (f"YES ({cfg.get('limite_mb_por_parte', 8.0)} MB)" if cfg.get("dividir_por_tamanho", True) else "NO") if lang == "en" else (f"SIM ({cfg.get('limite_mb_por_parte', 8.0)} MB)" if cfg.get("dividir_por_tamanho", True) else "NÃO")
+            lbl_single = "Single file output" if lang == "en" else "Gerar arquivo único"
+            single_val = ("YES (corpus_completo.md)" if cfg.get("gerar_arquivo_unico", True) else "NO") if lang == "en" else ("SIM (corpus_completo.md)" if cfg.get("gerar_arquivo_unico", True) else "NÃO")
+            lbl_rag = "RAG dataset (.JSONL)" if lang == "en" else "Base RAG (.JSONL)"
+            rag_val = ("YES (corpus_rag.jsonl)" if cfg.get("gerar_jsonl", True) else "NO") if lang == "en" else ("SIM (corpus_rag.jsonl)" if cfg.get("gerar_jsonl", True) else "NÃO")
+            lbl_zip = "Compress to .ZIP" if lang == "en" else "Compactar em .ZIP"
+            zip_val = ("YES" if cfg.get("gerar_arquivo_zip", True) else "NO") if lang == "en" else ("SIM" if cfg.get("gerar_arquivo_zip", True) else "NÃO")
+            lbl_ocr = "OCR in PDF & Images" if lang == "en" else "OCR em PDF e Imagens"
+            ocr_val = (f"ENABLED (DPI {cfg.get('dpi_ocr_pdf', 200)} | Min {cfg.get('min_dimensao_imagem_ocr', 150)}px)" if cfg.get("usar_ocr_em_pdf", True) else "DISABLED") if lang == "en" else (f"ATIVADO (DPI {cfg.get('dpi_ocr_pdf', 200)} | Mín {cfg.get('min_dimensao_imagem_ocr', 150)}px)" if cfg.get("usar_ocr_em_pdf", True) else "DESATIVADO")
+
+            print(f"  • {lbl_dest:<25}: {pasta_destino}")
+            print(f"  • {lbl_cpu:<25}: {lbl_cpu_desc}")
+            print(f"  • {lbl_pii:<25}: {pii_val_conf}")
+            print(f"  • {lbl_split_mb:<25}: {split_mb_val}")
+            print(f"  • {lbl_single:<25}: {single_val}")
+            print(f"  • {lbl_rag:<25}: {rag_val}")
+            print(f"  • {lbl_zip:<25}: {zip_val}")
+            print(f"  • {lbl_ocr:<25}: {ocr_val}")
             print(f"{Cor.TITULO}----------------------------------------------------------------------------{Cor.RESET}")
             if lang == "en":
                 print(" [ENTER] or [C] Confirm and Start Processing")
                 print(" [M] Change MB splitting limit (e.g., 8, 50, 100, 200 MB)")
                 print(" [W] Adjust number of CPU workers (current: " + str(max_workers) + ")")
-                print(" [P] Toggle PII Redaction (LGPD anonymization)")
+                print(" [P] Toggle PII Redaction (Privacy / LGPD anonymization)")
                 print(" [Z] Toggle .ZIP archive generation")
                 print(" [V] Cancel and return to main menu")
             else:
@@ -1486,13 +1509,15 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                 print(" [V] Cancelar e voltar ao menu")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
 
-            escolha_conf = input("\nAction / Opção: ").strip().upper()
+            prompt_act = "Enter desired action: " if lang == "en" else "Digite a ação desejada: "
+            escolha_conf = input(f"\n{prompt_act}").strip().upper()
             if escolha_conf in ("", "C", "S", "SIM", "Y", "YES"):
                 break
             elif escolha_conf in ("V", "0"):
                 return
             elif escolha_conf == "M":
-                novo_mb = input("\nLimit in MB (e.g., 8, 50, 200): ").strip().replace(",", ".")
+                prompt_m_input = "Limit in MB (e.g., 8, 50, 200): " if lang == "en" else "Limite em MB (ex: 8, 50, 200): "
+                novo_mb = input(f"\n{prompt_m_input}").strip().replace(",", ".")
                 try:
                     v_mb = float(novo_mb)
                     if v_mb >= 0.5:
@@ -1502,7 +1527,8 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                 except ValueError:
                     pass
             elif escolha_conf == "W":
-                nw = input(f"\nWorkers count (1 to {num_cpus}): ").strip()
+                prompt_w_input = f"Workers count (1 to {num_cpus}): " if lang == "en" else f"Quantidade de workers (1 a {num_cpus}): "
+                nw = input(f"\n{prompt_w_input}").strip()
                 if nw.isdigit() and 1 <= int(nw) <= num_cpus:
                     cfg["max_workers"] = int(nw)
                     max_workers = int(nw)
@@ -1990,8 +2016,12 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"\n{t('disponiveis_copilot', cfg)}")
     for ag in arquivos_gerados:
         print(f"  -> {Cor.TITULO}{ag}{Cor.RESET}")
-    print(f"  -> {Cor.AMARELO}audit_report.md / relatorio_auditoria.md{Cor.RESET}")
-    print(f"  -> {Cor.AMARELO}COPILOT_PROMPT.txt / PROMPT_PARA_COPILOT.txt{Cor.RESET}")
+    if lang == "en":
+        print(f"  -> {Cor.AMARELO}audit_report.md (detailed audit report){Cor.RESET}")
+        print(f"  -> {Cor.AMARELO}COPILOT_PROMPT.txt (anti-hallucination system prompt){Cor.RESET}")
+    else:
+        print(f"  -> {Cor.AMARELO}relatorio_auditoria.md (relatório de auditoria detalhado){Cor.RESET}")
+        print(f"  -> {Cor.AMARELO}PROMPT_PARA_COPILOT.txt (prompt anti-alucinação){Cor.RESET}")
 
     if arquivo_zip_gerado:
         print(f"\n  -> {Cor.VERDE}{Cor.NEGRITO}{t('pacote_zip', cfg)}: {arquivo_zip_gerado}{Cor.RESET}")
@@ -2007,7 +2037,8 @@ def selecionar_pasta_gui() -> str | None:
         root = tk.Tk()
         root.withdraw()
         root.attributes("-topmost", True)
-        pasta_sel = filedialog.askdirectory(title="Select Folder to Consolidate / Selecione a Pasta")
+        title_dlg = "Select Folder to Consolidate" if "--lang" in sys.argv or "--en" in sys.argv else "Selecione a Pasta para Consolidar"
+        pasta_sel = filedialog.askdirectory(title=title_dlg)
         root.destroy()
         if pasta_sel:
             return str(Path(pasta_sel).resolve())
@@ -2063,7 +2094,8 @@ def menu_adicionar_pastas(cfg: dict):
         lbl_pastas = "Currently monitored folders" if lang == "en" else "Pastas atualmente monitoradas"
         print(f"{lbl_pastas} ({len(cfg['pastas_entrada'])}):")
         for i, p in enumerate(cfg["pastas_entrada"], start=1):
-            status = f"{Cor.VERDE}[OK]{Cor.RESET}" if Path(p).exists() else f"{Cor.VERMELHO}[MISSING]{Cor.RESET}"
+            lbl_miss = "[MISSING]" if lang == "en" else "[INEXISTENTE]"
+            status = f"{Cor.VERDE}[OK]{Cor.RESET}" if Path(p).exists() else f"{Cor.VERMELHO}{lbl_miss}{Cor.RESET}"
             print(f"  [{i}] {status} {p}")
 
         print(f"\n{Cor.TITULO}----------------------------------------------------------------------------{Cor.RESET}")
@@ -2079,19 +2111,23 @@ def menu_adicionar_pastas(cfg: dict):
             print(" [0] Voltar ao menu principal")
         print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
 
-        op = input("\nOption / Opção: ").strip()
+        prompt_opt = "Enter option: " if lang == "en" else "Digite a opção: "
+        op = input(f"\n{prompt_opt}").strip()
         if op == "0" or not op:
             break
         elif op == "1":
-            print("\nAbrindo janela de seleção / Opening browse dialog...")
+            msg_dlg = "Opening browse dialog..." if lang == "en" else "Abrindo janela de seleção do Windows..."
+            print(f"\n{msg_dlg}")
             sel = selecionar_pasta_gui()
             if sel:
                 if sel not in cfg["pastas_entrada"]:
                     cfg["pastas_entrada"].append(sel)
                     salvar_config(cfg)
-                    print(f"{Cor.VERDE}[OK] Added: {sel}{Cor.RESET}")
+                    msg_add = f"[OK] Added: {sel}" if lang == "en" else f"[OK] Adicionada: {sel}"
+                    print(f"{Cor.VERDE}{msg_add}{Cor.RESET}")
                 else:
-                    print(f"{Cor.AMARELO}[Aviso] Folder already added.{Cor.RESET}")
+                    msg_warn = "[Notice] Folder already added." if lang == "en" else "[Aviso] Pasta já adicionada."
+                    print(f"{Cor.AMARELO}{msg_warn}{Cor.RESET}")
                 time.sleep(1.2)
         elif op == "2":
             prompt_c = "Enter or drop folder path: " if lang == "en" else "Digite ou arraste o caminho da pasta: "
@@ -2102,11 +2138,14 @@ def menu_adicionar_pastas(cfg: dict):
                     if p_res not in cfg["pastas_entrada"]:
                         cfg["pastas_entrada"].append(p_res)
                         salvar_config(cfg)
-                        print(f"{Cor.VERDE}[OK] Added: {p_res}{Cor.RESET}")
+                        msg_add = f"[OK] Added: {p_res}" if lang == "en" else f"[OK] Adicionada: {p_res}"
+                        print(f"{Cor.VERDE}{msg_add}{Cor.RESET}")
                     else:
-                        print(f"{Cor.AMARELO}[Aviso] Already added.{Cor.RESET}")
+                        msg_warn = "[Notice] Folder already added." if lang == "en" else "[Aviso] Pasta já adicionada."
+                        print(f"{Cor.AMARELO}{msg_warn}{Cor.RESET}")
                 else:
-                    print(f"{Cor.VERMELHO}[Erro] Path not found: {p_res}{Cor.RESET}")
+                    msg_err = f"[Error] Path not found: {p_res}" if lang == "en" else f"[Erro] Caminho não encontrado: {p_res}"
+                    print(f"{Cor.VERMELHO}{msg_err}{Cor.RESET}")
                 time.sleep(1.2)
         elif op == "3":
             prompt_m = "Enter parent folder path: " if lang == "en" else "Digite o caminho da Pasta Mãe: "
@@ -2121,9 +2160,11 @@ def menu_adicionar_pastas(cfg: dict):
                             cfg["pastas_entrada"].append(sp)
                             adicionadas += 1
                     salvar_config(cfg)
-                    print(f"{Cor.VERDE}[OK] {adicionadas} subfolders added!{Cor.RESET}")
+                    msg_ok = f"[OK] {adicionadas} subfolders added!" if lang == "en" else f"[OK] {adicionadas} subpastas adicionadas!"
+                    print(f"{Cor.VERDE}{msg_ok}{Cor.RESET}")
                 else:
-                    print(f"{Cor.VERMELHO}[Erro] Invalid parent directory.{Cor.RESET}")
+                    msg_err = "[Error] Invalid parent directory." if lang == "en" else "[Erro] Diretório mãe inválido."
+                    print(f"{Cor.VERMELHO}{msg_err}{Cor.RESET}")
                 time.sleep(1.5)
 
 
@@ -2134,25 +2175,28 @@ def menu_listar_remover_pastas(cfg: dict):
         titulo = "MONITORED FOLDERS" if lang == "en" else "PASTAS MONITORADAS"
         print(f"{Cor.TITULO}=== {titulo} ==={Cor.RESET}\n")
         if not cfg["pastas_entrada"]:
-            print(f"{Cor.AMARELO}(No folders currently configured / Nenhuma pasta configurada){Cor.RESET}")
+            msg_empty = "(No folders currently configured)" if lang == "en" else "(Nenhuma pasta configurada no momento)"
+            print(f"{Cor.AMARELO}{msg_empty}{Cor.RESET}")
             input(f"\n{t('voltar_menu', cfg)}")
             break
 
         for i, p in enumerate(cfg["pastas_entrada"], start=1):
             p_obj = Path(p)
-            status = f"{Cor.VERDE}[OK]{Cor.RESET}" if p_obj.exists() else f"{Cor.VERMELHO}[MISSING]{Cor.RESET}"
+            lbl_miss = "[MISSING]" if lang == "en" else "[INEXISTENTE]"
+            status = f"{Cor.VERDE}[OK]{Cor.RESET}" if p_obj.exists() else f"{Cor.VERMELHO}{lbl_miss}{Cor.RESET}"
             print(f" [{i:>2}] {status} {p}")
 
         if lang == "en":
             print("\nEnter folder number to REMOVE it")
             print("Enter [T] to REMOVE ALL folders")
-            print("Enter [0] to Return")
+            print("Enter [0] to Return to main menu")
         else:
             print("\nDigite o número da pasta para REMOVÊ-LA")
             print("Digite [T] para REMOVER TODAS as pastas")
-            print("Digite [0] para Voltar")
+            print("Digite [0] para Voltar ao menu principal")
 
-        escolha = input("\nChoice / Escolha: ").strip().upper()
+        prompt_c = "Enter choice: " if lang == "en" else "Digite sua opção: "
+        escolha = input(f"\n{prompt_c}").strip().upper()
         if not escolha or escolha == "0":
             break
         elif escolha == "T":
@@ -2169,7 +2213,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
     while True:
         limpar_tela()
         lang = obter_idioma(cfg)
-        print(f"{Cor.TITULO}=== SETTINGS (v5.0) - OUTPUT, OCR, PII & CONCURRENCY ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÕES (v5.0) - SAÍDAS, OCR, LGPD E CONCORRÊNCIA ==={Cor.RESET}\n")
+        print(f"{Cor.TITULO}=== SETTINGS (v5.1) - OUTPUT, OCR, PRIVACY & CONCURRENCY ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÕES (v5.1) - SAÍDAS, OCR, LGPD E CONCORRÊNCIA ==={Cor.RESET}\n")
 
         num_cpus = os.cpu_count() or 4
         workers_atual = int(cfg.get("max_workers", min(4, num_cpus)))
@@ -2185,7 +2229,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[7] Generate Folder/Departmental Consolidated     : {'YES' if cfg.get('gerar_por_pasta_raiz', True) else 'NO'}")
             print(f"[8] Generate Structured RAG Dataset (corpus_rag)  : {'YES' if cfg.get('gerar_jsonl', True) else 'NO'}")
             print(f"\n{Cor.NEGRITO}--- Privacy, Security & Concurrency ---{Cor.RESET}")
-            print(f"[9] PII Redaction (Mask CPF, CNPJ, Email, Phone)  : {'ENABLED' if cfg.get('mascarar_pii', False) else 'DISABLED'}")
+            print(f"[9] PII Redaction (Mask CPF, CNPJ, Email, Phone)  : {'ENABLED' if cfg.get('mascarar_pii', True) else 'DISABLED'}")
             print(f"[10] Safe Concurrent CPU Workers (RAM Protect)    : {workers_atual} workers (max: {num_cpus})")
             print(f"[11] Generate Compressed Package (.ZIP)           : {'YES' if cfg.get('gerar_arquivo_zip', True) else 'NO'}")
             print(f"\n{Cor.NEGRITO}--- Local Optical Character Recognition (OCR) ---{Cor.RESET}")
@@ -2195,7 +2239,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[15] Minimum Image Dimension for OCR (px)         : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
             print(f"[16] OCR Minimum Confidence Threshold (Score)     : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
             print(f"[17] Change Output Folder (Current: {cfg.get('pasta_saida')})")
-            print(f"[L] Switch Language / Idioma                      : English (Click to toggle)")
+            print(f"[L] Switch Language                               : English (Select to toggle)")
             print(f"\n{Cor.AMARELO}[R] Restore Factory Default Settings{Cor.RESET}")
             print("[0] Return to main menu")
         else:
@@ -2209,7 +2253,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[7] Gerar Consolidado por Pasta Departamental      : {'SIM' if cfg.get('gerar_por_pasta_raiz', True) else 'NÃO'}")
             print(f"[8] Gerar Base Estruturada RAG (corpus_rag.jsonl) : {'SIM' if cfg.get('gerar_jsonl', True) else 'NÃO'}")
             print(f"\n{Cor.NEGRITO}--- Privacidade, Segurança e Concorrência ---{Cor.RESET}")
-            print(f"[9] Anonimização de PII (LGPD: CPF, CNPJ, Email)  : {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}")
+            print(f"[9] Anonimização de PII (LGPD: CPF, CNPJ, Email)  : {'ATIVADO' if cfg.get('mascarar_pii', True) else 'DESATIVADO'}")
             print(f"[10] Processos Concorrentes Seguros (Anti-Estouro): {workers_atual} workers (máx: {num_cpus})")
             print(f"[11] Gerar Pacote Compactado (.ZIP) ao final      : {'SIM' if cfg.get('gerar_arquivo_zip', True) else 'NÃO'}")
             print(f"\n{Cor.NEGRITO}--- Reconhecimento Óptico de Caracteres (OCR Local) ---{Cor.RESET}")
@@ -2219,11 +2263,12 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             print(f"[15] Dimensão mínima de imagem para OCR (px)     : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
             print(f"[16] Limiar de Confiança OCR (Score Mínimo)       : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
             print(f"[17] Alterar Pasta de Saída (Atual: {cfg.get('pasta_saida')})")
-            print(f"[L] Alternar Idioma / Switch Language             : Português (Clique para alternar)")
+            print(f"[L] Alternar Idioma                               : Português (Selecione para alternar)")
             print(f"\n{Cor.AMARELO}[R] Restaurar Configuração Padrão Original{Cor.RESET}")
             print("[0] Voltar ao menu principal")
 
-        op = input("\nChoice / Opção: ").strip().upper()
+        prompt_c = "Enter option: " if lang == "en" else "Digite a opção: "
+        op = input(f"\n{prompt_c}").strip().upper()
         if op == "0" or not op:
             break
         elif op == "1":
@@ -2231,7 +2276,8 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "2":
             cfg["dividir_por_tamanho"] = not cfg.get("dividir_por_tamanho", True)
         elif op == "3":
-            val = input("MB limit (e.g. 8, 50, 200): ").strip().replace(",", ".")
+            prompt_mb = "MB limit (e.g. 8, 50, 200): " if lang == "en" else "Limite em MB (ex: 8, 50, 200): "
+            val = input(f"\n{prompt_mb}").strip().replace(",", ".")
             try:
                 mb = float(val)
                 if mb >= 0.5:
@@ -2241,7 +2287,8 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "4":
             cfg["dividir_por_quantidade"] = not cfg.get("dividir_por_quantidade", False)
         elif op == "5":
-            val = input("Batch size (e.g. 25, 50, 100): ").strip()
+            prompt_b = "Batch size (e.g. 25, 50, 100): " if lang == "en" else "Tamanho do lote (ex: 25, 50, 100): "
+            val = input(f"\n{prompt_b}").strip()
             if val.isdigit() and int(val) > 0:
                 cfg["qtd_docs_por_parte"] = int(val)
         elif op == "6":
@@ -2251,9 +2298,10 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "8":
             cfg["gerar_jsonl"] = not cfg.get("gerar_jsonl", True)
         elif op == "9":
-            cfg["mascarar_pii"] = not cfg.get("mascarar_pii", False)
+            cfg["mascarar_pii"] = not cfg.get("mascarar_pii", True)
         elif op == "10":
-            nw = input(f"Safe workers (1 to {num_cpus}): ").strip()
+            prompt_w = f"Safe workers (1 to {num_cpus}): " if lang == "en" else f"Workers seguros (1 a {num_cpus}): "
+            nw = input(f"\n{prompt_w}").strip()
             if nw.isdigit() and 1 <= int(nw) <= num_cpus:
                 cfg["max_workers"] = int(nw)
         elif op == "11":
@@ -2263,15 +2311,18 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "13":
             cfg["usar_ocr_em_imagens_embutidas"] = not cfg.get("usar_ocr_em_imagens_embutidas", True)
         elif op == "14":
-            val = input("DPI (e.g. 150, 200, 300): ").strip()
+            prompt_dpi = "DPI (e.g. 150, 200, 300): " if lang == "en" else "DPI (ex: 150, 200, 300): "
+            val = input(f"\n{prompt_dpi}").strip()
             if val.isdigit() and int(val) >= 100:
                 cfg["dpi_ocr_pdf"] = int(val)
         elif op == "15":
-            val = input("Minimum dimension px (e.g. 100, 150, 200): ").strip()
+            prompt_dim = "Minimum dimension px (e.g. 100, 150, 200): " if lang == "en" else "Dimensão mínima em px (ex: 100, 150, 200): "
+            val = input(f"\n{prompt_dim}").strip()
             if val.isdigit() and int(val) >= 20:
                 cfg["min_dimensao_imagem_ocr"] = int(val)
         elif op == "16":
-            val = input("Minimum confidence score (0.10 to 0.90): ").strip().replace(",", ".")
+            prompt_sc = "Minimum confidence score (0.10 to 0.90): " if lang == "en" else "Score mínimo de confiança (0.10 a 0.90): "
+            val = input(f"\n{prompt_sc}").strip().replace(",", ".")
             try:
                 sc = float(val)
                 if 0.05 <= sc <= 0.95:
@@ -2279,12 +2330,14 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             except ValueError:
                 pass
         elif op == "17":
-            novo = input("Output folder: ").strip().strip('"')
+            prompt_out = "Output folder: " if lang == "en" else "Pasta de saída: "
+            novo = input(f"\n{prompt_out}").strip().strip('"')
             if novo:
                 cfg["pasta_saida"] = str(resolver_caminho(novo))
         elif op == "L":
             cfg["idioma"] = "en" if cfg.get("idioma", "pt") == "pt" else "pt"
-            print(f"\n{Cor.VERDE}Language set to: {'English' if cfg['idioma'] == 'en' else 'Português'}{Cor.RESET}")
+            msg_lang = f"Language set to: {'English' if cfg['idioma'] == 'en' else 'Português'}" if cfg["idioma"] == "en" else f"Idioma definido para: {'English' if cfg['idioma'] == 'en' else 'Português'}"
+            print(f"\n{Cor.VERDE}{msg_lang}{Cor.RESET}")
             time.sleep(0.8)
         elif op == "R":
             pastas_atuais = cfg.get("pastas_entrada", [])
@@ -2293,7 +2346,8 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
             cfg.update(CONFIG_PADRAO.copy())
             cfg["pastas_entrada"] = pastas_atuais
             cfg["idioma"] = lang_atual
-            print(f"\n{Cor.VERDE}[OK] Reset to default settings!{Cor.RESET}")
+            msg_rst = "[OK] Reset to factory default settings!" if lang == "en" else "[OK] Configurações restauradas para o padrão!"
+            print(f"\n{Cor.VERDE}{msg_rst}{Cor.RESET}")
             time.sleep(1.0)
 
         salvar_config(cfg)
@@ -2301,6 +2355,8 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
 
 def menu_principal():
     cfg = carregar_config()
+    lang_init = obter_idioma(cfg)
+    cfg["idioma"] = lang_init
     while True:
         limpar_tela()
         lang = obter_idioma(cfg)
@@ -2319,8 +2375,11 @@ def menu_principal():
         print(f" {t('status_atual', cfg)}")
         print(f"  • {t('pastas_monitoradas', cfg):<25}: {Cor.NEGRITO}{qtd_pastas}{Cor.RESET}")
         print(f"  • {t('arquivos_localizados', cfg):<25}: {Cor.VERDE}{Cor.NEGRITO}{stats['total_arquivos']}{Cor.RESET} ({Cor.AMARELO}{stats['tamanho_formatado']}{Cor.RESET})")
-        print(f"  • {t('multicore_paralelo', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('multicore', True) else Cor.AMARELO + t('desativado', cfg)} ({workers_atual} safe workers){Cor.RESET}")
-        print(f"  • PII Redaction (LGPD)     : {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}")
+        lbl_workers_unit = "safe workers" if lang == "en" else "workers seguros"
+        print(f"  • {t('multicore_paralelo', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('multicore', True) else Cor.AMARELO + t('desativado', cfg)} ({workers_atual} {lbl_workers_unit}){Cor.RESET}")
+        lbl_pii = "PII Redaction (Privacy)" if lang == "en" else "Privacidade PII (LGPD)"
+        val_pii = ("ENABLED" if cfg.get('mascarar_pii', True) else "DISABLED") if lang == "en" else ("ATIVADO" if cfg.get('mascarar_pii', True) else "DESATIVADO")
+        print(f"  • {lbl_pii:<25}: {Cor.VERDE if cfg.get('mascarar_pii', True) else Cor.AMARELO}{val_pii}{Cor.RESET}")
         print(f"  • {t('ocr_pdf_img', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_pdf', True) else Cor.AMARELO + t('desativado', cfg)}{Cor.RESET}")
         print(f"  • {t('ocr_embutidas', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_imagens_embutidas', True) else Cor.AMARELO + t('desativado', cfg)} (Word/Excel/PPTX){Cor.RESET}")
 
@@ -2383,6 +2442,24 @@ def menu_principal():
 
 
 if __name__ == "__main__":
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print("""
+Local Document Consolidator for Microsoft Copilot (v5.1)
+Windows 11 | 100% Offline | Multicore Parallel & Local RapidOCR
+
+Usage:
+  python app.py [options]
+
+Options:
+  --lang en|pt          Set interface language (English or Portuguese)
+  --auto                Run non-interactively without prompting
+  --no-pii              Disable PII masking (keep raw CPF/CNPJ/Email)
+  --redact-pii          Force enable PII masking
+  --workers N           Set number of concurrent worker processes
+  --help, -h            Show this help message and exit
+        """.strip())
+        sys.exit(0)
+
     if "--auto" in sys.argv:
         cfg_auto = carregar_config()
         if "--redact-pii" in sys.argv:

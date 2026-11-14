@@ -5,6 +5,10 @@ title Consolidador Local de Documentos para Microsoft Copilot (Windows 11)
 
 cd /d "%~dp0"
 
+if exist ".venv\Scripts\python.exe" (
+    if exist ".venv\.installed_ok" goto run_app
+)
+
 set PYTHON_CMD=
 where python >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
@@ -22,22 +26,17 @@ if "%PYTHON_CMD%"=="" (
     echo Instale o Python 3.10+ em https://www.python.org/downloads/
     echo IMPORTANTE: Marque a caixa "Add Python to PATH" no instalador.
     echo ============================================================================
-    pause
     exit /b 1
 )
 
-if exist ".venv\Scripts\python.exe" goto check_packages
-
-echo [1/2] Criando ambiente virtual local venv...
-%PYTHON_CMD% -m venv .venv
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERRO] Falha ao criar o ambiente virtual .venv
-    pause
-    exit /b 1
+if not exist ".venv\Scripts\python.exe" (
+    echo [1/2] Criando ambiente virtual local venv...
+    %PYTHON_CMD% -m venv .venv
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERRO] Falha ao criar o ambiente virtual .venv
+        exit /b 1
+    )
 )
-
-:check_packages
-if exist ".venv\.installed_ok" goto run_app
 
 echo [2/2] Instalando bibliotecas locais de PDF, Office e OCR (100%% offline)...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
@@ -50,4 +49,3 @@ if %ERRORLEVEL% EQU 0 (
 
 :run_app
 ".venv\Scripts\python.exe" app.py --lang pt %*
-pause

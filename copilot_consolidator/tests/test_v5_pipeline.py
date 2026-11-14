@@ -102,6 +102,29 @@ class TestOfflinePipelineV5(unittest.TestCase):
         self.assertNotEqual(hash_200, hash_300, "Mudança de DPI deve invalidar cache.")
         self.assertNotEqual(hash_200, hash_pii, "Mudança de flag PII deve invalidar cache.")
 
+    def test_i18n_dictionary_completeness(self):
+        """Garante que todas as chaves do dicionário em português existem em inglês."""
+        pt_keys = set(app.I18N["pt"].keys())
+        en_keys = set(app.I18N["en"].keys())
+
+        missing_in_en = pt_keys - en_keys
+        self.assertEqual(len(missing_in_en), 0, f"Chaves faltantes em EN: {missing_in_en}")
+
+    def test_language_argument_parsing(self):
+        """Valida que obter_idioma reconhece flags de idioma via sys.argv."""
+        orig_argv = sys.argv.copy()
+        try:
+            sys.argv = ["app.py", "--lang", "en"]
+            self.assertEqual(app.obter_idioma({}), "en")
+
+            sys.argv = ["app.py", "--lang", "pt"]
+            self.assertEqual(app.obter_idioma({}), "pt")
+
+            sys.argv = ["app.py", "--english"]
+            self.assertEqual(app.obter_idioma({}), "en")
+        finally:
+            sys.argv = orig_argv
+
 
 if __name__ == "__main__":
     unittest.main()
