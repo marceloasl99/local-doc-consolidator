@@ -1,80 +1,78 @@
-# Plano de Implementação e Otimização: local-doc-consolidator (Revisão 2 - Aprovada)
-**Documento de Planejamento Técnico (`plan1.md`)**  
+# Plano de Implementação: local-doc-consolidator (v5.0 Enterprise)
+**Documento de Planejamento Técnico & Arquitetura v5.0 (`plan1.md`)**  
 **Projeto:** `marceloasl99/local-doc-consolidator`  
 **Data:** 14 de Novembro de 2026  
-**Status:** Aprovado para Execução Imediata  
-**Diretriz Chave Alinhada:** Sem marcadores de paginação no meio do Markdown (texto contínuo e limpo para o Copilot). Rastreamento de páginas restrito aos metadados do cabeçalho e ao `corpus_rag.jsonl`.
+**Status:** Revisão Técnica Aprovada — Implementação da Versão 5.0  
+**Base:** Auditoria Técnica (Augusto MT - 7.5/10), testes de produção com 15 arquivos reais e especificações para ambientes corporativos de alta confidencialidade.
 
 ---
 
-## 1. Decisões Técnicas Alinhadas & Veredito Final
+## 1. Resumo Executivo da Evolução v5.0
 
-1. **Supressão de Paginação Interna no Markdown (P1-02):**
-   - Atendendo estritamente à regra de negócio (*"sem paginação no meio do arquivo"*), o Markdown consolidado não terá quebras ou cabeçalhos repetidos como `### Página X` ou `--- [Página X de Y] ---`. O texto correrá unificado e contínuo.
-   - O número total de páginas constará no cabeçalho mestre de metadados (`- **Dimensão Documental:** 119 páginas`).
-   - A segmentação por página será preservada exclusivamente no arquivo estruturado `corpus_rag.jsonl` (Fase P3) para indexadores vetoriais.
+A versão 4.0 comprovou a viabilidade do processamento 100% offline com RapidOCR ONNX, cache SHA-256 e particionamento inteligente. A versão 5.0 eleva a solução para o padrão definitivo de produção corporativa, focando em:
 
-2. **Filtro de Proporção de Aspecto Seguro (P0-03):**
-   - O filtro descartará apenas proporções extremas `> 20:1` (linhas divisórias, réguas e bordas de artefatos visuais), preservando gráficos horizontais, cronogramas, tabelas largas e fluxogramas analíticos.
-   - Dimensão mínima para OCR: maior lado `>= 150px` e menor lado `>= 25px`.
+1. **Fidelidade Contextual Completa nos Documentos Office:**
+   - **Word (`.docx`):** Fim do isolamento de tabelas e imagens no final do arquivo. Extração ordenada iterando sobre `doc.element.body.iterchildren()`, posicionando tabelas e blocos de OCR de imagens exatamente abaixo do parágrafo de referência.
+   - **PowerPoint (`.pptx`):** Extração de imagens e diagramas com OCR vinculada diretamente a cada slide (`### Slide N`), incluindo tabelas e dados de gráficos (`shape.has_chart`).
+   - **Excel (`.xlsx`):** Ancoragem de imagens de comprovantes à aba correspondente (`ws._images`) e preservação de fórmulas calculadas.
+   - **CSV Estruturado:** Detecção automática de delimitadores (`;`, `,`, `\t`, `|`) via `csv.Sniffer()` e conversão em tabelas Markdown alinhadas.
 
-3. **Detecção de Página Escaneada Híbrida (P0-04):**
-   - Página escaneada acionada se: `len(texto_nativo.strip()) < 80 and len(imagens) > 0` OU qualquer imagem embutida cobrir mais de `60%` da área física da página.
+2. **Diagnóstico Explícito de 3 Estados no OCR (Fim de Falhas Silenciosas):**
+   - Estado 1: `ok` (texto extraído acima do limiar de confiança).
+   - Estado 2: `empty_or_low_conf` (OCR executado com sucesso, sem texto ou abaixo de 0.50).
+   - Estado 3: `error` (falha técnica na inicialização ou decodificação — registrado no relatório e no Markdown com aviso explícito).
 
-4. **Reordenação da Fase P1:**
-   - 1º Filtro de confiança (< 0.50) e dimensão;
-   - 2º Deduplicação por hash SHA-256 dos bytes originais da imagem;
-   - 3º Normalização de texto OCR (hifenização e quebras duras) restrita ao bloco de imagem;
-   - 4º Limpeza de `<br>` em tabelas;
-   - 5º Metadados estruturados no cabeçalho;
-   - 6º Texto contínuo sem divisores de página intermediários no Markdown.
+3. **Particionamento Estrito para Janela de Contexto Copilot:**
+   - Criação de `00_INDICE_MESTRE.md` como catálogo global independente.
+   - Cada parte (`corpus_parte_01.md`, etc.) inclui seu índice local resumido.
+   - Fatiamento de documentos gigantes que excedam o limite de MB em trechos lógicos `[004] (Trecho 1/2)`.
+   - Estimador de tokens de contexto com alerta de saturação da janela do Copilot (> 128k tokens).
 
-5. **Deduplicação de Imagens por Hash de Bytes Brutos (P1-04):**
-   - O hash SHA-256 é calculado nos bytes originais (`doc.extract_image(xref)["image"]` ou `z.read(nome)`) antes de qualquer conversão para evitar divergências de compressão PNG/pixmap.
-
-6. **100% Offline Garantido (P2-01):**
-   - Remoção de `markitdown` de `requirements.txt`. Zero chamadas externas de rede.
+4. **Blindagem e Segurança Corporativa (LGPD / Privacidade):**
+   - Gravação atômica de cache (`.tmp` + `os.replace`).
+   - Redação opcional de PII (`--redact-pii` / `"mascarar_pii": true`): mascaramento automático por Regex de CPFs, CNPJs, e-mails e telefones.
+   - Controle seguro de concorrência: `max_workers` padrão em `min(4, os.cpu_count())` para evitar pico de memória RAM em notebooks.
+   - Higiene de repositório: proteção de caminhos internos da empresa via `.gitignore`.
 
 ---
 
-## 2. Ordem de Implementação
+## 2. Matriz de Tarefas v5.0
 
 ```
-[Etapa 1: Fase P0 - Correções Críticas & Limiares]
-   ├── [P0-01] Flag de cache com DPI, dimensões e limiares (flag_ocr)
-   ├── [P0-02] Constante declarativa do Prompt do Copilot
-   ├── [P0-03] Limiar 150px + Filtro de aspecto seguro (> 20:1)
-   └── [P0-04] Detecção proporcional/híbrida de página escaneada
+[Módulo P0: OCR Modernizado & Diagnóstico de 3 Estados]
+   ├── [P0-01] Diagnóstico de 3 estados (ok, empty, error) sem falhas silenciosas
+   ├── [P0-02] Configuração explícita de idioma de OCR (--lang pt: LATIN / --lang en: EN)
+   ├── [P0-03] Controle seguro de memória multicore (padrão min(4, cpus), configurável)
+   └── [P0-04] Redação opcional de PII (Regex de CPF, CNPJ, e-mail, telefone)
 
-[Etapa 2: Fase P1 - Qualidade de Extração & RAG/Copilot]
-   ├── [P1-06] Filtro de score/confiança RapidOCR (< 0.50)
-   ├── [P1-04] Deduplicação por hash SHA-256 de bytes originais de imagens
-   ├── [P1-03] Normalização de texto OCR (hífen e quebra) sem quebrar delimitadores
-   ├── [P1-05] Limpeza de quebras <br> em tabelas Markdown
-   ├── [P1-01] Metadados estruturados no cabeçalho do documento (autor, páginas, OCR)
-   └── [P1-02] Remoção de paginação interna no Markdown (texto contínuo e limpo)
+[Módulo P1: Fidelidade Contextual de Documentos Office & CSV]
+   ├── [P1-01] DOCX: Iteração corporal ordenada (Parágrafos -> Tabelas -> Imagens inline)
+   ├── [P1-02] PPTX: Extração inline de imagens e gráficos por Slide
+   ├── [P1-03] XLSX: Ancoragem de imagens à planilha/aba e preservação de fórmulas
+   ├── [P1-04] CSV: Auto-detecção de delimitadores (csv.Sniffer) e formatação tabular
+   └── [P1-05] Deduplicação dupla: hash binário e equivalência textual normalizada
 
-[Etapa 3: Fase P2 - Robustez, 100% Offline & Limpeza]
-   ├── [P2-01] Remoção de markitdown de requirements.txt
-   ├── [P2-02] Logging explícito no terminal para falhas de I/O e ZIP
-   ├── [P2-03] Filtro seletivo de Warnings
-   ├── [P2-04] Tratamento claro para PDFs com senha / corrompidos
-   └── [P2-05] Arquivamento de pacotes ZIP sem poluir a raiz
+[Módulo P2: Particionamento Estrito & Rastreabilidade Copilot]
+   ├── [P2-01] Geração de 00_INDICE_MESTRE.md e índices locais em cada parte
+   ├── [P2-02] Subdivisão lógica de documentos individuais > limite MB ([ID] (Trecho X/Y))
+   ├── [P2-03] Estimativa de tokens e alerta de saturação de contexto Copilot
+   └── [P2-04] Relatório HTML de auditoria opcional e exportação corpus_rag.jsonl
 
-[Etapa 4: Fase P3 - UX, RAG JSONL & Finalização]
-   ├── [P3-01] Barra de progresso com contador e ETA no terminal
-   ├── [P3-02] Geração simultânea de corpus_rag.jsonl com metadados por página
-   ├── [P3-03] Validação segura de config.json com notificação visual
-   ├── [P3-04] Verificação automática de integridade zipfile.testzip()
-   └── [P3-05] Criação do arquivo LICENSE (MIT)
+[Módulo P3: Higiene de Repositório & Segurança]
+   ├── [P3-01] Gravação atômica de cache (.tmp + os.replace)
+   ├── [P3-02] Templates de configuração (config.example.json, pastas.example.txt)
+   └── [P3-03] Proteção de dados locais no .gitignore
 ```
 
 ---
 
-## 3. Validação e Homologação
+## 3. Validação e Homologação v5.0
 
-- Validação em amostra rápida (`teste_rapido/`).
-- Validação completa dos 15 arquivos de `5555.zip`.
-- Auditoria do arquivo `corpus_completo.md` (conferir ausência de quebras no meio do texto e limpeza de ruídos).
-- Auditoria de `corpus_rag.jsonl` (conferir metadados estruturados).
-- Commit e push no GitHub (`origin/main`).
+1. **Teste Unitário e de Extração:**
+   - Verificação da ordem de elementos no Word (tabela antes ou depois de parágrafo específico).
+   - Verificação de imagens inline nos slides do PowerPoint.
+   - Verificação de delimitação de CSV `;` vs `,`.
+2. **Teste de Carga nos 15 Arquivos Reais:**
+   - Execução com 4 workers controlados.
+   - Verificação do tempo de execução e consumo de memória.
+3. **Commit e Push para origin/main.**

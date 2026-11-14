@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Consolidador Local de Documentos para Microsoft Copilot (v4 - Enterprise Edition)
-Local Document Consolidator for Microsoft Copilot (v4 - Enterprise Edition)
+Consolidador Local de Documentos para Microsoft Copilot & RAG (v5.0 - Enterprise Edition)
+Local Document Consolidator for Microsoft Copilot & RAG (v5.0 - Enterprise Edition)
 Bilingual: English (start.bat) & Português (iniciar_windows.bat)
-100% Offline | Multicore Parallel | Private Local Processing
+100% Offline | Multicore Concurrency Control | Context-Aware Office Extraction
 """
 
 import csv
@@ -23,13 +23,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
-# Suprime avisos seletivos de layout do PyMuPDF e avisos de bibliotecas conhecidas
+# Suprime avisos de bibliotecas e desativa sugestoes de layout do PyMuPDF
 os.environ["PYMUPDF_SUGGEST_LAYOUT_ANALYZER"] = "0"
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*fitz.*")
 warnings.filterwarnings("ignore", message=".*pymupdf_layout.*")
 
-# Habilita cores ANSI no terminal do Windows
 if platform.system() == "Windows":
     os.system("")
 
@@ -86,8 +85,8 @@ PROMPT_SISTEMA_COPILOT_EN = (
 
 I18N = {
     "pt": {
-        "titulo_app": "CONSOLIDADOR LOCAL DE DOCUMENTOS PARA MICROSOFT COPILOT (v4)",
-        "subtitulo_app": "Ambiente: Windows 11 | 100% Offline | {cpus} Núcleos CPU Concorrentes",
+        "titulo_app": "CONSOLIDADOR LOCAL DE DOCUMENTOS PARA MICROSOFT COPILOT (v5.0)",
+        "subtitulo_app": "Ambiente: Windows 11 | 100% Offline | {workers} Processos Concorrentes Seguros",
         "status_atual": "Status Atual:",
         "pastas_monitoradas": "Pastas monitoradas",
         "arquivos_localizados": "Arquivos localizados",
@@ -107,15 +106,15 @@ I18N = {
         "op_adicionar": "[2] Adicionar pastas (Windows Explorer, digitar caminhos ou Pasta Mãe)",
         "op_listar": "[3] Listar / Verificar / Remover pastas configuradas ({qtd})",
         "op_recarregar": "[4] Recarregar lista de pastas do arquivo 'pastas.txt'",
-        "op_config": "[5] Configurar opções de saída (Tamanhos/MB, Lotes, ZIP, Timestamp, OCR, RAG JSONL)",
+        "op_config": "[5] Configurar opções (Tamanhos/MB, Workers, PII, OCR, RAG JSONL)",
         "op_limpar_cache": "[6] Limpar cache de extração SHA-256 (forçar releitura completa)",
         "op_idioma": "[L] Idioma / Language (Atual: Português)",
         "op_sair": "[0] Sair",
         "prompt_opcao": "Digite o número da opção desejada: ",
         "sem_pastas": "[!] Nenhuma pasta configurada! Adicione pastas na opção [2] ou no arquivo pastas.txt.",
         "sem_arquivos": "[!] Nenhum arquivo compatível foi encontrado nas pastas informadas.",
-        "iniciando_conversao": "INICIANDO CONVERSÃO LOCAL PARA MICROSOFT COPILOT",
-        "processando_paralelo": "Processando documentos em paralelo...",
+        "iniciando_conversao": "INICIANDO CONVERSÃO LOCAL PARA MICROSOFT COPILOT (v5.0)",
+        "processando_paralelo": "Processando documentos com concorrência segura...",
         "gerando_zip": "Gerando arquivo compactado .ZIP e verificando integridade...",
         "concluido_sucesso": "CONSOLIDAÇÃO CONCLUÍDA COM SUCESSO EM {tempo:.2f}s!",
         "pasta_execucao": "Pasta da execução",
@@ -160,8 +159,8 @@ I18N = {
         "falhas_extracao": "Falhas de Extração",
     },
     "en": {
-        "titulo_app": "LOCAL DOCUMENT CONSOLIDATOR FOR MICROSOFT COPILOT (v4)",
-        "subtitulo_app": "Environment: Windows 11 | 100% Offline | {cpus} Concurrent CPU Cores",
+        "titulo_app": "LOCAL DOCUMENT CONSOLIDATOR FOR MICROSOFT COPILOT (v5.0)",
+        "subtitulo_app": "Environment: Windows 11 | 100% Offline | {workers} Safe Concurrent Workers",
         "status_atual": "Current Status:",
         "pastas_monitoradas": "Monitored folders",
         "arquivos_localizados": "Located files",
@@ -181,15 +180,15 @@ I18N = {
         "op_adicionar": "[2] Add folders (Windows Explorer, type path, or Parent Folder)",
         "op_listar": "[3] List / Check / Remove configured folders ({qtd})",
         "op_recarregar": "[4] Reload folder list from 'pastas.txt'",
-        "op_config": "[5] Configure output options (Sizes/MB, Batches, ZIP, Timestamp, OCR, RAG JSONL)",
+        "op_config": "[5] Configure options (Sizes/MB, Workers, PII, OCR, RAG JSONL)",
         "op_limpar_cache": "[6] Clear SHA-256 extraction cache (force full re-extraction)",
         "op_idioma": "[L] Language / Idioma (Current: English)",
         "op_sair": "[0] Exit",
         "prompt_opcao": "Enter desired option: ",
         "sem_pastas": "[!] No folder configured! Add folders in option [2] or in pastas.txt.",
         "sem_arquivos": "[!] No compatible files found in configured folders.",
-        "iniciando_conversao": "STARTING LOCAL CONSOLIDATION FOR MICROSOFT COPILOT",
-        "processando_paralelo": "Processing documents in parallel...",
+        "iniciando_conversao": "STARTING LOCAL CONSOLIDATION FOR MICROSOFT COPILOT (v5.0)",
+        "processando_paralelo": "Processing documents with safe concurrency...",
         "gerando_zip": "Creating .ZIP archive and verifying integrity...",
         "concluido_sucesso": "CONSOLIDATION COMPLETED SUCCESSFULLY IN {tempo:.2f}s!",
         "pasta_execucao": "Execution folder",
@@ -248,9 +247,11 @@ CONFIG_PADRAO = {
     "gerar_individual_por_arquivo": False,
     "gerar_por_pasta_raiz": True,
     "gerar_jsonl": True,
-    # Compactação e Timestamp:
+    # Segurança, Concorrência e PII:
     "usar_pasta_timestamp": True,
     "gerar_arquivo_zip": True,
+    "mascarar_pii": False,
+    "max_workers": min(4, os.cpu_count() or 4),
     # Configurações de OCR:
     "usar_ocr_em_pdf": True,
     "usar_ocr_em_imagens_embutidas": True,
@@ -258,16 +259,31 @@ CONFIG_PADRAO = {
     "min_dimensao_imagem_ocr": 150,
     "limiar_confianca_ocr": 0.50,
     "proporcao_max_aspecto_ocr": 20.0,
-    # Configurações de hardware / multicore:
     "multicore": True,
     "extensoes": EXTENSOES_PADRAO,
 }
 
 _OCR_ENGINE = None
 
+# Expressões regulares para redação de PII (LGPD / Privacidade)
+RE_CPF = re.compile(r'\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b')
+RE_CNPJ = re.compile(r'\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b')
+RE_EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+RE_TELEFONE = re.compile(r'\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}|\d{4})[-.\s]?\d{4}\b')
+
+
+def redigir_pii(texto: str) -> str:
+    """Aplica anonimização local em dados sensíveis (CPF, CNPJ, E-mail, Telefone)."""
+    if not texto:
+        return ""
+    texto = RE_CPF.sub("[CPF REDIGIDO]", texto)
+    texto = RE_CNPJ.sub("[CNPJ REDIGIDO]", texto)
+    texto = RE_EMAIL.sub("[EMAIL REDIGIDO]", texto)
+    texto = RE_TELEFONE.sub("[TELEFONE REDIGIDO]", texto)
+    return texto
+
 
 def obter_idioma(cfg: dict) -> str:
-    """Detecta idioma a partir de argumentos CLI (--lang en|pt) ou configuração."""
     if "--lang" in sys.argv:
         try:
             idx = sys.argv.index("--lang")
@@ -285,7 +301,6 @@ def obter_idioma(cfg: dict) -> str:
 
 
 def t(chave: str, cfg: dict, **kwargs) -> str:
-    """Recupera texto traduzido conforme o idioma ativo."""
     lang = obter_idioma(cfg)
     dicionario = I18N.get(lang, I18N["pt"])
     texto = dicionario.get(chave, I18N["pt"].get(chave, chave))
@@ -298,12 +313,16 @@ def t(chave: str, cfg: dict, **kwargs) -> str:
 
 
 def obter_ocr_worker():
-    """Inicializa ou recupera o motor RapidOCR do processo worker atual."""
+    """Inicializa ou recupera o motor RapidOCR do processo worker atual com fallback automático."""
     global _OCR_ENGINE
     if _OCR_ENGINE is None:
         try:
-            from rapidocr_onnxruntime import RapidOCR
-            _OCR_ENGINE = RapidOCR()
+            try:
+                from rapidocr import RapidOCR
+                _OCR_ENGINE = RapidOCR()
+            except ImportError:
+                from rapidocr_onnxruntime import RapidOCR
+                _OCR_ENGINE = RapidOCR()
         except Exception:
             _OCR_ENGINE = False
     return _OCR_ENGINE if _OCR_ENGINE is not False else None
@@ -356,7 +375,6 @@ def obter_estatisticas_arquivos(arquivos: list[tuple[Path, Path]]) -> dict:
 
 
 def ler_texto_com_fallback(caminho: Path) -> str:
-    """Lê arquivos de texto plano testando encodings comuns."""
     for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"):
         try:
             return caminho.read_text(encoding=enc)
@@ -394,16 +412,34 @@ def tabela_para_markdown(linhas: list[list[str]]) -> str:
     return "\n".join(saida)
 
 
+def extrair_csv_estruturado(caminho: Path) -> str:
+    """Lê arquivos CSV identificando o delimitador e convertendo em tabela Markdown."""
+    conteudo_bruto = ler_texto_com_fallback(caminho)
+    if not conteudo_bruto.strip():
+        return ""
+    try:
+        amostra = conteudo_bruto[:4096]
+        dialeto = csv.Sniffer().sniff(amostra, delimiters=";,\t|")
+        delimitador = dialeto.delimiter
+    except Exception:
+        primeira_linha = conteudo_bruto.splitlines()[0] if conteudo_bruto.splitlines() else ""
+        delimitador = ";" if primeira_linha.count(";") > primeira_linha.count(",") else ","
+
+    try:
+        linhas = list(csv.reader(conteudo_bruto.splitlines(), delimiter=delimitador))
+        if linhas and any(linhas):
+            md_tab = tabela_para_markdown(linhas)
+            if md_tab:
+                return md_tab
+    except Exception:
+        pass
+    return conteudo_bruto
+
+
 def normalizar_texto_ocr(texto: str) -> str:
-    """
-    Normaliza o texto extraído via OCR:
-    - Recombina palavras quebradas por hifenização no final da linha (ex: desen-\nvolvimento -> desenvolvimento)
-    - Converte quebras de linha duras simples em espaços, preservando quebras de parágrafo duplas
-    - Não corrompe tabelas, listas numeradas ou citações em bloco
-    """
+    """Recombina palavras hifenizadas e unifica quebras de linha duras de OCR."""
     if not texto:
         return ""
-
     texto = re.sub(r'(\b\w+)-\s*\n\s*(\w+\b)', r'\1\2', texto)
     paragrafos = re.split(r'\n\s*\n', texto)
     limpos = []
@@ -425,26 +461,27 @@ def executar_ocr_em_bytes(
     min_dim: int = 150,
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
-) -> tuple[str, float]:
+) -> tuple[str, float, str, str | None]:
     """
-    Executa OCR em bytes de imagem (PNG, JPEG, etc.), filtrando ruídos, proporções extremas (> 20:1)
-    e detecções com baixa confiança (< 0.50). Retorna (texto_extraido, confianca_media).
+    Executa OCR em bytes de imagem retornando:
+    (texto_extraido, confianca_media, status_estado, erro_str)
+    status_estado pode ser: 'ok', 'empty_or_low_conf', 'error'
     """
     if not img_bytes:
-        return "", 0.0
+        return "", 0.0, "empty_or_low_conf", None
     engine = obter_ocr_worker()
     if not engine:
-        return "", 0.0
+        return "", 0.0, "error", "Motor OCR não pôde ser inicializado no worker"
     try:
         from PIL import Image
         with Image.open(io.BytesIO(img_bytes)) as im:
             w, h = im.size
             if max(w, h) < min_dim or min(w, h) < 25:
-                return "", 0.0
+                return "", 0.0, "empty_or_low_conf", None
 
             ratio_aspecto = max(w, h) / max(min(w, h), 1)
             if ratio_aspecto > proporcao_max_aspecto:
-                return "", 0.0
+                return "", 0.0, "empty_or_low_conf", None
 
             max_edge = max(w, h)
             if max_edge > 2400:
@@ -456,7 +493,7 @@ def executar_ocr_em_bytes(
 
         resultado, _ = engine(img_bytes)
         if not resultado:
-            return "", 0.0
+            return "", 0.0, "empty_or_low_conf", None
 
         linhas_validas = []
         scores = []
@@ -477,54 +514,14 @@ def executar_ocr_em_bytes(
                     scores.append(1.0)
 
         if not linhas_validas:
-            return "", 0.0
+            return "", 0.0, "empty_or_low_conf", None
 
         conf_media = (sum(scores) / len(scores)) if scores else 0.0
         texto_bruto = "\n".join(linhas_validas)
         texto_limpo = normalizar_texto_ocr(texto_bruto)
-        return texto_limpo, conf_media
-    except Exception:
-        return "", 0.0
-
-
-def extrair_imagens_zip_office(
-    caminho: Path,
-    prefixo: str,
-    min_dim: int = 150,
-    limiar_confianca: float = 0.50,
-    proporcao_max_aspecto: float = 20.0,
-    cache_dedup: dict | None = None,
-) -> list[tuple[str, str, float]]:
-    """Extrai imagens de pacotes OpenXML aplicando deduplicação por hash SHA-256 de bytes originais."""
-    if cache_dedup is None:
-        cache_dedup = {}
-    resultados = []
-    try:
-        with zipfile.ZipFile(caminho, "r") as z:
-            media_files = [n for n in z.namelist() if n.startswith(prefixo)]
-            media_files.sort()
-            for nome in media_files:
-                ext = Path(nome).suffix.lower()
-                if ext in {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff", ".tif"}:
-                    dados = z.read(nome)
-                    h_img = hashlib.sha256(dados).hexdigest()
-                    if h_img in cache_dedup:
-                        txt_ocr, conf = cache_dedup[h_img]
-                    else:
-                        txt_ocr, conf = executar_ocr_em_bytes(
-                            dados,
-                            min_dim=min_dim,
-                            limiar_confianca=limiar_confianca,
-                            proporcao_max_aspecto=proporcao_max_aspecto,
-                        )
-                        cache_dedup[h_img] = (txt_ocr, conf)
-
-                    if txt_ocr:
-                        nome_base = Path(nome).name
-                        resultados.append((nome_base, txt_ocr, conf))
-    except Exception:
-        pass
-    return resultados
+        return texto_limpo, conf_media, "ok", None
+    except Exception as e:
+        return "", 0.0, "error", str(e)
 
 
 def extrair_imagem_avulsa(
@@ -533,8 +530,9 @@ def extrair_imagem_avulsa(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
-) -> tuple[str, int, int, dict, list, float]:
+) -> tuple[str, int, int, dict, list, float, dict]:
     """Processa arquivos de imagem avulsos diretamente via OCR."""
+    diag = {"ok": 0, "empty": 0, "error": 0}
     try:
         from PIL import Image
         dados = caminho.read_bytes()
@@ -542,34 +540,44 @@ def extrair_imagem_avulsa(
             w, h = im.size
             formato = im.format or caminho.suffix.replace(".", "").upper()
     except Exception as e:
-        return f"*(Erro ao abrir imagem: {e})*", 0, 1, {}, [], 0.0
+        diag["error"] += 1
+        return f"*(Erro ao abrir imagem: {e})*", 0, 1, {}, [], 0.0, diag
 
     dim_avulsa = min(min_dim, 40)
-    texto, conf = executar_ocr_em_bytes(
+    texto, conf, status, err = executar_ocr_em_bytes(
         dados,
         min_dim=dim_avulsa,
         limiar_confianca=limiar_confianca,
         proporcao_max_aspecto=proporcao_max_aspecto,
     )
-    meta_info = {"formato": formato, "resolucao": f"{w}x{h} px"}
+    if status == "ok":
+        diag["ok"] += 1
+    elif status == "error":
+        diag["error"] += 1
+    else:
+        diag["empty"] += 1
 
+    meta_info = {"formato": formato, "resolucao": f"{w}x{h} px"}
     label_img = "Image" if lang == "en" else "Imagem"
     label_res = "Resolution" if lang == "en" else "Resolução"
     label_fmt = "Format" if lang == "en" else "Formato"
     label_ocr = "Text Extracted via Local OCR" if lang == "en" else "Texto Extraído via OCR Local"
-    label_sem_txt = "*(Image without readable text detected)*" if lang == "en" else "*(Imagem sem texto legível detectado)*"
 
-    if texto:
+    if status == "ok" and texto:
         bloco = (
             f"**[{label_img}: {caminho.name}]** ({label_res}: {w}x{h} px | {label_fmt}: {formato})\n\n"
             f"> **{label_ocr}:**\n"
             + "\n".join(f"> {linha}" for linha in texto.splitlines())
         )
         paginas_rag = [{"pagina": 1, "texto": texto}]
-        return bloco, 1, 1, meta_info, paginas_rag, conf
+        return bloco, 1, 1, meta_info, paginas_rag, conf, diag
+    elif status == "error":
+        bloco = f"**[{label_img}: {caminho.name}]**\n> **[OCR Local - Falha Técnica]:** *({err})*"
+        return bloco, 0, 1, meta_info, [], 0.0, diag
     else:
+        label_sem_txt = "*(Image without readable text detected)*" if lang == "en" else "*(Imagem sem texto legível detectado)*"
         bloco = f"**[{label_img}: {caminho.name}]** ({label_res}: {w}x{h} px | {label_fmt}: {formato})\n{label_sem_txt}"
-        return bloco, 0, 1, meta_info, [], 0.0
+        return bloco, 0, 1, meta_info, [], 0.0, diag
 
 
 def extrair_pdf_hibrido(
@@ -580,14 +588,15 @@ def extrair_pdf_hibrido(
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
-) -> tuple[str, int, int, dict, list, float]:
-    """Lê PDFs nativamente e aciona OCR local mantendo o fluxo textual contínuo."""
+) -> tuple[str, int, int, dict, list, float, dict]:
+    """Lê PDFs nativamente e aciona OCR com diagnóstico de 3 estados."""
     cont_ocr = 0
     blocos_conteudo = []
     paginas_rag = []
     scores_ocr = []
     meta_info = {}
     cache_dedup_doc = {}
+    diag = {"ok": 0, "empty": 0, "error": 0}
 
     try:
         import pymupdf
@@ -607,7 +616,7 @@ def extrair_pdf_hibrido(
         if doc.is_encrypted:
             doc.close()
             msg_p = "*(PDF document password protected - restricted extraction)*" if lang == "en" else "*(Documento PDF protegido por senha - extração restrita sem credenciais)*"
-            return msg_p, 0, total_paginas, meta_info, [], 0.0
+            return msg_p, 0, total_paginas, meta_info, [], 0.0, diag
 
         for num_pag, pagina in enumerate(doc, start=1):
             texto_nativo = pagina.get_text("text").strip()
@@ -649,28 +658,30 @@ def extrair_pdf_hibrido(
 
             # 1. Caso A: Página escaneada
             if eh_escaneada:
-                engine = obter_ocr_worker()
-                if engine:
-                    try:
-                        pix = pagina.get_pixmap(dpi=dpi)
-                        img_bytes = pix.tobytes("png")
-                        txt_ocr, conf_p = executar_ocr_em_bytes(
-                            img_bytes,
-                            min_dim=min_dim,
-                            limiar_confianca=limiar_confianca,
-                            proporcao_max_aspecto=proporcao_max_aspecto,
-                        )
-                        if txt_ocr:
-                            tag_p = f"*(Page {num_pag} scanned - extracted via local OCR)*" if lang == "en" else f"*(Página {num_pag} escaneada - extraída via OCR local)*"
-                            texto_pagina = f"{tag_p}\n{txt_ocr}"
-                            cont_ocr += 1
-                            scores_ocr.append(conf_p)
-                        else:
-                            texto_pagina = f"*(Page {num_pag} scanned without readable text)*" if lang == "en" else f"*(Página {num_pag} escaneada sem texto legível)*"
-                    except Exception:
-                        texto_pagina = texto_nativo or (f"*(Page {num_pag} scanned)*" if lang == "en" else f"*(Página {num_pag} escaneada)*")
-                else:
-                    texto_pagina = texto_nativo or (f"*(Page {num_pag} scanned)*" if lang == "en" else f"*(Página {num_pag} escaneada)*")
+                try:
+                    pix = pagina.get_pixmap(dpi=dpi)
+                    img_bytes = pix.tobytes("png")
+                    txt_ocr, conf_p, st, err = executar_ocr_em_bytes(
+                        img_bytes,
+                        min_dim=min_dim,
+                        limiar_confianca=limiar_confianca,
+                        proporcao_max_aspecto=proporcao_max_aspecto,
+                    )
+                    if st == "ok" and txt_ocr:
+                        diag["ok"] += 1
+                        tag_p = f"*(Page {num_pag} scanned - extracted via local OCR)*" if lang == "en" else f"*(Página {num_pag} escaneada - extraída via OCR local)*"
+                        texto_pagina = f"{tag_p}\n{txt_ocr}"
+                        cont_ocr += 1
+                        scores_ocr.append(conf_p)
+                    elif st == "error":
+                        diag["error"] += 1
+                        texto_pagina = f"*(Página {num_pag} escaneada - Erro de OCR: {err})*"
+                    else:
+                        diag["empty"] += 1
+                        texto_pagina = f"*(Page {num_pag} scanned without readable text)*" if lang == "en" else f"*(Página {num_pag} escaneada sem texto legível)*"
+                except Exception as e:
+                    diag["error"] += 1
+                    texto_pagina = texto_nativo or f"*(Página {num_pag} escaneada - Erro: {e})*"
 
             # 2. Caso B: Página mista (texto nativo + imagens embutidas)
             else:
@@ -687,17 +698,18 @@ def extrair_pdf_hibrido(
                                 if img_bytes:
                                     h_img = hashlib.sha256(img_bytes).hexdigest()
                                     if h_img in cache_dedup_doc:
-                                        txt_img, conf_img = cache_dedup_doc[h_img]
+                                        txt_img, conf_img, st, err = cache_dedup_doc[h_img]
                                     else:
-                                        txt_img, conf_img = executar_ocr_em_bytes(
+                                        txt_img, conf_img, st, err = executar_ocr_em_bytes(
                                             img_bytes,
                                             min_dim=min_dim,
                                             limiar_confianca=limiar_confianca,
                                             proporcao_max_aspecto=proporcao_max_aspecto,
                                         )
-                                        cache_dedup_doc[h_img] = (txt_img, conf_img)
+                                        cache_dedup_doc[h_img] = (txt_img, conf_img, st, err)
 
-                                    if txt_img:
+                                    if st == "ok" and txt_img:
+                                        diag["ok"] += 1
                                         lbl_emb = f"OCR Embedded Image #{img_idx}" if lang == "en" else f"OCR Imagem Embutida #{img_idx}"
                                         texto_ocr_extra.append(
                                             f"> **[{lbl_emb} ({w}x{h} px)]:**\n"
@@ -705,6 +717,11 @@ def extrair_pdf_hibrido(
                                         )
                                         cont_ocr += 1
                                         scores_ocr.append(conf_img)
+                                    elif st == "error":
+                                        diag["error"] += 1
+                                        texto_ocr_extra.append(f"> **[OCR Imagem Embutida #{img_idx} - Falha Técnica]:** *({err})*")
+                                    else:
+                                        diag["empty"] += 1
                         except Exception:
                             continue
 
@@ -719,11 +736,11 @@ def extrair_pdf_hibrido(
 
         doc.close()
         conf_media = (sum(scores_ocr) / len(scores_ocr)) if scores_ocr else 0.0
-        return "\n\n".join(blocos_conteudo), cont_ocr, total_paginas, meta_info, paginas_rag, conf_media
+        return "\n\n".join(blocos_conteudo), cont_ocr, total_paginas, meta_info, paginas_rag, conf_media, diag
     except ImportError:
         pass
 
-    # Fallback com pypdf
+    # Fallback pypdf
     from pypdf import PdfReader
     reader = PdfReader(str(caminho_pdf))
     total_paginas = len(reader.pages)
@@ -732,22 +749,32 @@ def extrair_pdf_hibrido(
         if txt:
             blocos_conteudo.append(txt)
             paginas_rag.append({"pagina": num_pag, "texto": txt})
-    return "\n\n".join(blocos_conteudo), cont_ocr, total_paginas, meta_info, paginas_rag, 0.0
+    return "\n\n".join(blocos_conteudo), cont_ocr, total_paginas, meta_info, paginas_rag, 0.0, diag
 
 
-def extrair_docx_nativo(
+def extrair_docx_contextual(
     caminho: Path,
     usar_ocr_imagens: bool = True,
     min_dim: int = 150,
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
-) -> tuple[str, int, int, dict, list, float]:
-    """Extrai parágrafos, tabelas e imagens com OCR em documentos Word."""
+) -> tuple[str, int, int, dict, list, float, dict]:
+    """Extrai parágrafos, tabelas e imagens em ordem contextual sequencial exata."""
     import docx
+    from docx.oxml.text.paragraph import CT_P
+    from docx.oxml.table import CT_Tbl
+    from docx.text.paragraph import Paragraph
+    from docx.table import Table
+
     doc = docx.Document(str(caminho))
     partes = []
     meta_info = {}
+    diag = {"ok": 0, "empty": 0, "error": 0}
+    scores = []
+    cont_ocr = 0
+    cache_dedup = {}
+    imagens_rids_vistos = set()
 
     if hasattr(doc, "core_properties"):
         cp = doc.core_properties
@@ -758,129 +785,190 @@ def extrair_docx_nativo(
         if cp.created:
             meta_info["creationDate"] = cp.created.strftime("%Y-%m-%d")
 
-    for p in doc.paragraphs:
-        t_p = p.text.strip()
-        if not t_p:
-            continue
-        estilo = (p.style.name or "").lower() if p.style else ""
-        if "heading 1" in estilo or "título 1" in estilo:
-            partes.append(f"### {t_p}")
-        elif "heading 2" in estilo or "título 2" in estilo:
-            partes.append(f"#### {t_p}")
-        else:
-            partes.append(t_p)
-
     lbl_tab = "Table" if lang == "en" else "Tabela"
-    for idx_t, tab in enumerate(doc.tables, start=1):
-        linhas = [[cel.text.strip() for cel in row.cells] for row in tab.rows]
-        md_tab = tabela_para_markdown(linhas)
-        if md_tab:
-            partes.append(f"\n**{lbl_tab} {idx_t}:**\n{md_tab}")
+    lbl_tag = "OCR Image" if lang == "en" else "OCR Imagem"
 
-    cont_ocr = 0
-    scores = []
-    cache_dedup = {}
-    if usar_ocr_imagens:
-        imagens_ocr = extrair_imagens_zip_office(
-            caminho,
-            "word/media/",
-            min_dim=min_dim,
-            limiar_confianca=limiar_confianca,
-            proporcao_max_aspecto=proporcao_max_aspecto,
-            cache_dedup=cache_dedup,
-        )
-        if imagens_ocr:
-            lbl_bloco = "\n### Embedded Images in Document (OCR)" if lang == "en" else "\n### Imagens Embutidas no Documento (OCR)"
-            lbl_tag = "OCR Image" if lang == "en" else "OCR Imagem"
-            blocos_img = [lbl_bloco]
-            for nome_img, txt, conf in imagens_ocr:
-                cont_ocr += 1
-                scores.append(conf)
-                blocos_img.append(
-                    f"> **[{lbl_tag}: `{nome_img}`]:**\n"
-                    + "\n".join(f"> {l}" for l in txt.splitlines())
-                )
-            partes.append("\n\n".join(blocos_img))
+    for child in doc.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            p = Paragraph(child, doc)
+            t_p = p.text.strip()
+            if t_p:
+                estilo = (p.style.name or "").lower() if p.style else ""
+                if "heading 1" in estilo or "título 1" in estilo:
+                    partes.append(f"### {t_p}")
+                elif "heading 2" in estilo or "título 2" in estilo:
+                    partes.append(f"#### {t_p}")
+                else:
+                    partes.append(t_p)
+
+            # Imagens inline vinculadas a este parágrafo
+            if usar_ocr_imagens:
+                r_embeds = child.xpath('.//@r:embed')
+                for r_id in r_embeds:
+                    if r_id in doc.part.related_parts and r_id not in imagens_rids_vistos:
+                        imagens_rids_vistos.add(r_id)
+                        target = doc.part.related_parts[r_id]
+                        if hasattr(target, "blob"):
+                            img_bytes = target.blob
+                            nome_img = getattr(target, "partname", f"image_{r_id}").split("/")[-1]
+                            h_img = hashlib.sha256(img_bytes).hexdigest()
+                            if h_img in cache_dedup:
+                                txt_ocr, conf, st, err = cache_dedup[h_img]
+                            else:
+                                txt_ocr, conf, st, err = executar_ocr_em_bytes(
+                                    img_bytes,
+                                    min_dim=min_dim,
+                                    limiar_confianca=limiar_confianca,
+                                    proporcao_max_aspecto=proporcao_max_aspecto,
+                                )
+                                cache_dedup[h_img] = (txt_ocr, conf, st, err)
+
+                            if st == "ok" and txt_ocr:
+                                diag["ok"] += 1
+                                cont_ocr += 1
+                                scores.append(conf)
+                                partes.append(
+                                    f"> **[{lbl_tag}: `{nome_img}` (posicionada nesta seção)]:**\n"
+                                    + "\n".join(f"> {l}" for l in txt_ocr.splitlines())
+                                )
+                            elif st == "error":
+                                diag["error"] += 1
+                                partes.append(f"> **[OCR Falha Técnica - `{nome_img}`]:** *({err})*")
+                            else:
+                                diag["empty"] += 1
+
+        elif isinstance(child, CT_Tbl):
+            t = Table(child, doc)
+            linhas = [[cel.text.strip() for cel in row.cells] for row in t.rows]
+            md_tab = tabela_para_markdown(linhas)
+            if md_tab:
+                partes.append(f"\n**{lbl_tab}:**\n{md_tab}")
 
     texto_final = "\n\n".join(partes)
     conf_media = (sum(scores) / len(scores)) if scores else 0.0
     paginas_rag = [{"pagina": 1, "texto": texto_final}]
-    return texto_final, cont_ocr, 1, meta_info, paginas_rag, conf_media
+    return texto_final, cont_ocr, 1, meta_info, paginas_rag, conf_media, diag
 
 
-def extrair_xlsx_nativo(
+def extrair_xlsx_contextual(
     caminho: Path,
     usar_ocr_imagens: bool = True,
     min_dim: int = 150,
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
-) -> tuple[str, int, int, dict, list, float]:
-    """Converte planilhas Excel em tabelas Markdown e extrai imagens com OCR."""
+) -> tuple[str, int, int, dict, list, float, dict]:
+    """Lê planilhas preservando fórmulas calculadas e vinculando imagens às respectivas abas."""
     import openpyxl
-    wb = openpyxl.load_workbook(str(caminho), data_only=True, read_only=True)
     partes = []
     meta_info = {}
     paginas_rag = []
+    diag = {"ok": 0, "empty": 0, "error": 0}
+    scores = []
+    cont_ocr = 0
+    cache_dedup = {}
     lbl_plan = "Sheet" if lang == "en" else "Planilha"
 
-    for idx_aba, nome_aba in enumerate(wb.sheetnames, start=1):
-        ws = wb[nome_aba]
-        linhas = []
-        for row in ws.iter_rows(values_only=True):
-            if any(c is not None and str(c).strip() != "" for c in row):
-                linhas.append(["" if c is None else str(c) for c in row])
-        md_tab = tabela_para_markdown(linhas)
-        if md_tab:
-            texto_aba = f"### {lbl_plan}: {nome_aba}\n\n{md_tab}"
-            partes.append(texto_aba)
-            paginas_rag.append({"pagina": idx_aba, "texto": texto_aba})
-    wb.close()
+    wb_val = openpyxl.load_workbook(str(caminho), data_only=True, read_only=False)
+    try:
+        wb_form = openpyxl.load_workbook(str(caminho), data_only=False, read_only=False)
+    except Exception:
+        wb_form = None
 
-    cont_ocr = 0
-    scores = []
-    cache_dedup = {}
-    if usar_ocr_imagens:
-        imagens_ocr = extrair_imagens_zip_office(
-            caminho,
-            "xl/media/",
-            min_dim=min_dim,
-            limiar_confianca=limiar_confianca,
-            proporcao_max_aspecto=proporcao_max_aspecto,
-            cache_dedup=cache_dedup,
-        )
-        if imagens_ocr:
-            lbl_bloco = "\n### Embedded Images / Receipts in Spreadsheet (OCR)" if lang == "en" else "\n### Imagens / Comprovantes Embutidos na Planilha (OCR)"
-            lbl_tag = "OCR Spreadsheet Image" if lang == "en" else "OCR Imagem Planilha"
-            blocos_img = [lbl_bloco]
-            for nome_img, txt, conf in imagens_ocr:
-                cont_ocr += 1
-                scores.append(conf)
-                blocos_img.append(
-                    f"> **[{lbl_tag}: `{nome_img}`]:**\n"
-                    + "\n".join(f"> {l}" for l in txt.splitlines())
-                )
-            partes.append("\n\n".join(blocos_img))
+    for idx_aba, nome_aba in enumerate(wb_val.sheetnames, start=1):
+        ws_v = wb_val[nome_aba]
+        ws_f = wb_form[nome_aba] if wb_form and nome_aba in wb_form.sheetnames else None
+
+        linhas = []
+        for r_idx, row in enumerate(ws_v.iter_rows(), start=1):
+            linha_cols = []
+            tem_dado = False
+            for c_idx, cell in enumerate(row, start=1):
+                val_v = cell.value
+                val_str = "" if val_v is None else str(val_v).strip()
+                if val_str:
+                    tem_dado = True
+                if ws_f:
+                    try:
+                        f_val = ws_f.cell(row=r_idx, column=c_idx).value
+                        if isinstance(f_val, str) and f_val.startswith("="):
+                            val_str += f" [Fórmula: {f_val}]"
+                    except Exception:
+                        pass
+                linha_cols.append(val_str)
+            if tem_dado:
+                linhas.append(linha_cols)
+
+        md_tab = tabela_para_markdown(linhas)
+        texto_aba_blocos = []
+        if md_tab:
+            texto_aba_blocos.append(f"### {lbl_plan}: {nome_aba}\n\n{md_tab}")
+
+        # Extrai imagens ancoradas nesta aba
+        if usar_ocr_imagens and hasattr(ws_v, "_images") and ws_v._images:
+            for im in ws_v._images:
+                try:
+                    img_data = im._data()
+                    h_img = hashlib.sha256(img_data).hexdigest()
+                    if h_img in cache_dedup:
+                        txt_ocr, conf, st, err = cache_dedup[h_img]
+                    else:
+                        txt_ocr, conf, st, err = executar_ocr_em_bytes(
+                            img_data,
+                            min_dim=min_dim,
+                            limiar_confianca=limiar_confianca,
+                            proporcao_max_aspecto=proporcao_max_aspecto,
+                        )
+                        cache_dedup[h_img] = (txt_ocr, conf, st, err)
+
+                    if st == "ok" and txt_ocr:
+                        diag["ok"] += 1
+                        cont_ocr += 1
+                        scores.append(conf)
+                        texto_aba_blocos.append(
+                            f"\n> **[OCR Imagem na Planilha '{nome_aba}']:**\n"
+                            + "\n".join(f"> {l}" for l in txt_ocr.splitlines())
+                        )
+                    elif st == "error":
+                        diag["error"] += 1
+                        texto_aba_blocos.append(f"\n> **[OCR Imagem Planilha '{nome_aba}' - Falha]:** *({err})*")
+                    else:
+                        diag["empty"] += 1
+                except Exception:
+                    pass
+
+        if texto_aba_blocos:
+            bloco_aba = "\n\n".join(texto_aba_blocos)
+            partes.append(bloco_aba)
+            paginas_rag.append({"pagina": idx_aba, "texto": bloco_aba})
+
+    wb_val.close()
+    if wb_form:
+        wb_form.close()
 
     texto_final = "\n\n".join(partes)
     conf_media = (sum(scores) / len(scores)) if scores else 0.0
-    return texto_final, cont_ocr, len(paginas_rag) or 1, meta_info, paginas_rag, conf_media
+    return texto_final, cont_ocr, len(paginas_rag) or 1, meta_info, paginas_rag, conf_media, diag
 
 
-def extrair_pptx_nativo(
+def extrair_pptx_contextual(
     caminho: Path,
     usar_ocr_imagens: bool = True,
     min_dim: int = 150,
     limiar_confianca: float = 0.50,
     proporcao_max_aspecto: float = 20.0,
     lang: str = "pt",
-) -> tuple[str, int, int, dict, list, float]:
-    """Extrai slides, anotações, tabelas e imagens com OCR de apresentações PowerPoint."""
+) -> tuple[str, int, int, dict, list, float, dict]:
+    """Extrai texto, tabelas, gráficos e imagens com OCR diretamente em cada slide."""
     from pptx import Presentation
     prs = Presentation(str(caminho))
     partes = []
     meta_info = {}
     paginas_rag = []
+    diag = {"ok": 0, "empty": 0, "error": 0}
+    scores = []
+    cont_ocr = 0
+    cache_dedup = {}
     lbl_notas = "Presenter Notes" if lang == "en" else "Notas do Apresentador"
 
     for idx_s, slide in enumerate(prs.slides, start=1):
@@ -896,6 +984,46 @@ def extrair_pptx_nativo(
                 md_t = tabela_para_markdown(linhas)
                 if md_t:
                     textos_slide.append(f"\n{md_t}")
+            if getattr(shape, "has_chart", False):
+                try:
+                    ch = shape.chart
+                    tit = ch.chart_title.text_frame.text if ch.has_title else "Gráfico"
+                    textos_slide.append(f"\n**[Gráfico: {tit}]**")
+                except Exception:
+                    pass
+            if getattr(shape, "shape_type", None) == 13 or hasattr(shape, "image"):
+                if usar_ocr_imagens:
+                    try:
+                        img_bytes = shape.image.blob
+                        h_img = hashlib.sha256(img_bytes).hexdigest()
+                        if h_img in cache_dedup:
+                            txt_img, conf_img, st, err = cache_dedup[h_img]
+                        else:
+                            txt_img, conf_img, st, err = executar_ocr_em_bytes(
+                                img_bytes,
+                                min_dim=min_dim,
+                                limiar_confianca=limiar_confianca,
+                                proporcao_max_aspecto=proporcao_max_aspecto,
+                            )
+                            cache_dedup[h_img] = (txt_img, conf_img, st, err)
+
+                        if st == "ok" and txt_img:
+                            diag["ok"] += 1
+                            cont_ocr += 1
+                            scores.append(conf_img)
+                            lbl_slide_img = "OCR Slide Image" if lang == "en" else "OCR Imagem do Slide"
+                            textos_slide.append(
+                                f"\n> **[{lbl_slide_img}]:**\n"
+                                + "\n".join(f"> {l}" for l in txt_img.splitlines())
+                            )
+                        elif st == "error":
+                            diag["error"] += 1
+                            textos_slide.append(f"\n> **[OCR Slide {idx_s} - Falha]:** *({err})*")
+                        else:
+                            diag["empty"] += 1
+                    except Exception:
+                        pass
+
         if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
             notas = slide.notes_slide.notes_text_frame.text.strip()
             if notas:
@@ -905,34 +1033,9 @@ def extrair_pptx_nativo(
         partes.append(bloco_slide)
         paginas_rag.append({"pagina": idx_s, "texto": bloco_slide})
 
-    cont_ocr = 0
-    scores = []
-    cache_dedup = {}
-    if usar_ocr_imagens:
-        imagens_ocr = extrair_imagens_zip_office(
-            caminho,
-            "ppt/media/",
-            min_dim=min_dim,
-            limiar_confianca=limiar_confianca,
-            proporcao_max_aspecto=proporcao_max_aspecto,
-            cache_dedup=cache_dedup,
-        )
-        if imagens_ocr:
-            lbl_bloco = "\n### Embedded Images / Diagrams in Slides (OCR)" if lang == "en" else "\n### Imagens / Diagramas Embutidos nos Slides (OCR)"
-            lbl_tag = "OCR Slide Image" if lang == "en" else "OCR Imagem Slide"
-            blocos_img = [lbl_bloco]
-            for nome_img, txt, conf in imagens_ocr:
-                cont_ocr += 1
-                scores.append(conf)
-                blocos_img.append(
-                    f"> **[{lbl_tag}: `{nome_img}`]:**\n"
-                    + "\n".join(f"> {l}" for l in txt.splitlines())
-                )
-            partes.append("\n\n".join(blocos_img))
-
     texto_final = "\n\n".join(partes)
     conf_media = (sum(scores) / len(scores)) if scores else 0.0
-    return texto_final, cont_ocr, len(prs.slides), meta_info, paginas_rag, conf_media
+    return texto_final, cont_ocr, len(prs.slides), meta_info, paginas_rag, conf_media, diag
 
 
 def calcular_hash_arquivo(caminho: Path) -> str:
@@ -940,11 +1043,11 @@ def calcular_hash_arquivo(caminho: Path) -> str:
     with caminho.open("rb") as f:
         while chunk := f.read(65536):
             h.update(chunk)
-    return h.hexdigest()[:20]
+    return h.hexdigest()
 
 
 def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | None]:
-    """Função concorrente executada nos núcleos da CPU (ProcessPoolExecutor)."""
+    """Worker multicore seguro que processa arquivos e grava cache atômico."""
     raiz_str, arq_str, pasta_cache_str, cfg = args
     raiz = Path(raiz_str)
     arq = Path(arq_str)
@@ -966,8 +1069,9 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
         usar_pdf = int(cfg.get("usar_ocr_em_pdf", True))
         usar_img = int(cfg.get("usar_ocr_em_imagens_embutidas", True))
         prop_max = float(cfg.get("proporcao_max_aspecto_ocr", 20.0))
+        mascarar_pii = bool(cfg.get("mascarar_pii", False))
 
-        flag_ocr = f"ocr_{usar_pdf}_{usar_img}_{dpi_val}_{min_dim}_{int(limiar_conf * 100)}"
+        flag_ocr = f"v5_{usar_pdf}_{usar_img}_{dpi_val}_{min_dim}_{int(limiar_conf * 100)}_{int(prop_max)}_{int(mascarar_pii)}"
         arq_cache = pasta_cache / f"{file_hash}_{flag_ocr}.json"
 
         if arq_cache.exists():
@@ -980,6 +1084,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                     "meta_info": dados.get("meta_info", {}),
                     "confianca_ocr": dados.get("confianca_ocr", 0.0),
                     "paginas_rag": dados.get("paginas_rag", []),
+                    "diag_ocr": dados.get("diag_ocr", {"ok": 0, "empty": 0, "error": 0}),
                     "hash": file_hash,
                     "conteudo": dados["conteudo"],
                 }, None
@@ -993,9 +1098,10 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
         paginas_rag = []
         confianca_ocr = 0.0
         conteudo = ""
+        diag_ocr = {"ok": 0, "empty": 0, "error": 0}
 
         if ext == ".pdf":
-            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr = extrair_pdf_hibrido(
+            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr, diag_ocr = extrair_pdf_hibrido(
                 arq,
                 usar_ocr=cfg.get("usar_ocr_em_pdf", True),
                 dpi=dpi_val,
@@ -1005,7 +1111,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 lang=lang,
             )
         elif ext in EXTENSOES_IMAGEM:
-            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr = extrair_imagem_avulsa(
+            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr, diag_ocr = extrair_imagem_avulsa(
                 arq,
                 min_dim=min_dim,
                 limiar_confianca=limiar_conf,
@@ -1013,7 +1119,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 lang=lang,
             )
         elif ext == ".docx":
-            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr = extrair_docx_nativo(
+            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr, diag_ocr = extrair_docx_contextual(
                 arq,
                 usar_ocr_imagens=cfg.get("usar_ocr_em_imagens_embutidas", True),
                 min_dim=min_dim,
@@ -1022,7 +1128,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 lang=lang,
             )
         elif ext == ".xlsx":
-            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr = extrair_xlsx_nativo(
+            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr, diag_ocr = extrair_xlsx_contextual(
                 arq,
                 usar_ocr_imagens=cfg.get("usar_ocr_em_imagens_embutidas", True),
                 min_dim=min_dim,
@@ -1031,7 +1137,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 lang=lang,
             )
         elif ext == ".pptx":
-            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr = extrair_pptx_nativo(
+            conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca_ocr, diag_ocr = extrair_pptx_contextual(
                 arq,
                 usar_ocr_imagens=cfg.get("usar_ocr_em_imagens_embutidas", True),
                 min_dim=min_dim,
@@ -1039,6 +1145,9 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 proporcao_max_aspecto=prop_max,
                 lang=lang,
             )
+        elif ext == ".csv":
+            conteudo = extrair_csv_estruturado(arq)
+            paginas_rag = [{"pagina": 1, "texto": conteudo}]
         elif ext in EXTENSOES_TEXTO:
             conteudo = ler_texto_com_fallback(arq)
             paginas_rag = [{"pagina": 1, "texto": conteudo}]
@@ -1060,8 +1169,16 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 conteudo = ler_texto_com_fallback(arq)
                 paginas_rag = [{"pagina": 1, "texto": conteudo}]
 
+        if mascarar_pii:
+            conteudo = redigir_pii(conteudo)
+            for p in paginas_rag:
+                p["texto"] = redigir_pii(p["texto"])
+
         conteudo = conteudo.strip()
-        arq_cache.write_text(
+
+        # Gravação atômica segura do cache
+        tmp_cache = arq_cache.with_suffix(".tmp")
+        tmp_cache.write_text(
             json.dumps(
                 {
                     "arquivo": arq.name,
@@ -1071,12 +1188,15 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                     "meta_info": meta_info,
                     "confianca_ocr": confianca_ocr,
                     "paginas_rag": paginas_rag,
+                    "diag_ocr": diag_ocr,
                     "data_cache": datetime.now().isoformat(),
                 },
                 ensure_ascii=False,
             ),
             encoding="utf-8",
         )
+        os.replace(tmp_cache, arq_cache)
+
         return arq.name, caminho_rel, raiz.name, {
             "cache": False,
             "ocr_pages": ocr_count,
@@ -1084,6 +1204,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
             "meta_info": meta_info,
             "confianca_ocr": confianca_ocr,
             "paginas_rag": paginas_rag,
+            "diag_ocr": diag_ocr,
             "hash": file_hash,
             "conteudo": conteudo,
         }, None
@@ -1091,10 +1212,11 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
         return arq.name, caminho_rel, raiz.name, {}, str(e)
 
 
-def listar_arquivos_elegiveis(pastas: list[str], extensoes: list[str]) -> list[tuple[Path, Path]]:
+def listar_arquivos_elegiveis(pastas: list[str], extensoes: list[str]) -> tuple[list[tuple[Path, Path]], list[str]]:
     exts = {e.lower() for e in extensoes}
     arquivos = []
     vistos_abs = set()
+    pastas_sem_permissao = []
 
     for p_str in pastas:
         p_raiz = resolver_caminho(p_str)
@@ -1102,22 +1224,28 @@ def listar_arquivos_elegiveis(pastas: list[str], extensoes: list[str]) -> list[t
             continue
         try:
             for item in p_raiz.rglob("*"):
-                if item.is_file() and item.suffix.lower() in exts:
-                    if item.name.startswith("~$") or item.name.startswith("."):
-                        continue
-                    abs_path = item.resolve()
-                    if abs_path not in vistos_abs:
-                        vistos_abs.add(abs_path)
-                        arquivos.append((p_raiz, item))
+                try:
+                    if item.is_file() and item.suffix.lower() in exts:
+                        if item.name.startswith("~$") or item.name.startswith("."):
+                            continue
+                        abs_path = item.resolve()
+                        if abs_path not in vistos_abs:
+                            vistos_abs.add(abs_path)
+                            arquivos.append((p_raiz, item))
+                except PermissionError:
+                    pastas_sem_permissao.append(str(item))
+                except Exception:
+                    continue
+        except PermissionError:
+            pastas_sem_permissao.append(str(p_raiz))
         except Exception:
             continue
 
     arquivos.sort(key=lambda x: str(x[1]).lower())
-    return arquivos
+    return arquivos, pastas_sem_permissao
 
 
 def compactar_pasta(origem: Path, destino_zip: Path) -> bool:
-    """Gera pacote compactado .ZIP e valida sua integridade com testzip()."""
     try:
         destino_zip.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(destino_zip, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1132,11 +1260,11 @@ def compactar_pasta(origem: Path, destino_zip: Path) -> bool:
         with zipfile.ZipFile(destino_zip, "r") as z_check:
             falha = z_check.testzip()
             if falha is not None:
-                print(f"{Cor.VERMELHO}[AVISO / WARNING] Zip integrity warning on file: {falha}{Cor.RESET}")
+                print(f"{Cor.VERMELHO}[AVISO / WARNING] Zip integrity notice on file: {falha}{Cor.RESET}")
                 return False
         return True
     except Exception as e:
-        print(f"{Cor.VERMELHO}[ERRO / ERROR] Zip creation failed: {e}{Cor.RESET}")
+        print(f"{Cor.VERMELHO}[ERRO / ERROR] Zip compression failed: {e}{Cor.RESET}")
         return False
 
 
@@ -1162,8 +1290,11 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             input(f"\n{t('voltar_menu', cfg)}")
         return
 
-    arquivos = listar_arquivos_elegiveis(pastas, cfg.get("extensoes", EXTENSOES_PADRAO))
+    arquivos, sem_permissao = listar_arquivos_elegiveis(pastas, cfg.get("extensoes", EXTENSOES_PADRAO))
     total = len(arquivos)
+
+    if sem_permissao:
+        print(f"{Cor.AMARELO}[Aviso] {len(sem_permissao)} arquivos/pastas ignorados por falta de permissão de leitura.{Cor.RESET}")
 
     if total == 0:
         print(f"{Cor.VERMELHO}{t('sem_arquivos', cfg)}{Cor.RESET}")
@@ -1183,15 +1314,21 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         pasta_destino = pasta_saida_base
     pasta_destino.mkdir(parents=True, exist_ok=True)
 
+    # Concorrência segura (padrão min(4, cpus) para evitar estouro de RAM com ONNX)
+    num_cpus = os.cpu_count() or 4
+    workers_config = int(cfg.get("max_workers", min(4, num_cpus)))
+    usar_multicore = cfg.get("multicore", True)
+    max_workers = workers_config if usar_multicore else 1
+
     # TELA DE CONFIRMAÇÃO PRÉVIA (interativo)
     if "--auto" not in sys.argv:
         while True:
             limpar_tela()
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
-            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL"
+            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING (v5.0)" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL (v5.0)"
             print(f"{Cor.TITULO}   {titulo_conf}{Cor.RESET}")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}\n")
-            
+
             lbl_resumo = "Corpus Summary to Process:" if lang == "en" else "Resumo do Corpus a Processar:"
             print(f" {Cor.NEGRITO}{lbl_resumo}{Cor.RESET}")
             print(f"  • {t('pastas_monitoradas', cfg):<25}: {len(pastas)}")
@@ -1204,6 +1341,8 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             lbl_cfg = "Current Execution Settings:" if lang == "en" else "Configurações desta Execução:"
             print(f"\n {Cor.NEGRITO}{lbl_cfg}{Cor.RESET}")
             print(f"  • Destination folder      : {pasta_destino}")
+            print(f"  • Safe CPU workers        : {max_workers} processes (RAM optimized)")
+            print(f"  • PII Redaction (LGPD)    : {'ENABLED' if cfg.get('mascarar_pii', False) else 'DISABLED'}")
             print(f"  • Split by MB limit       : {'YES (' + str(cfg.get('limite_mb_por_parte', 8.0)) + ' MB)' if cfg.get('dividir_por_tamanho', True) else 'NO'}")
             print(f"  • Single file output      : {'YES (corpus_completo.md)' if cfg.get('gerar_arquivo_unico', True) else 'NO'}")
             print(f"  • RAG dataset (.JSONL)    : {'YES (corpus_rag.jsonl)' if cfg.get('gerar_jsonl', True) else 'NO'}")
@@ -1213,16 +1352,20 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             if lang == "en":
                 print(" [ENTER] or [C] Confirm and Start Processing")
                 print(" [M] Change MB splitting limit (e.g., 8, 50, 100, 200 MB)")
+                print(" [W] Adjust number of CPU workers (current: " + str(max_workers) + ")")
+                print(" [P] Toggle PII Redaction (LGPD anonymization)")
                 print(" [Z] Toggle .ZIP archive generation")
                 print(" [V] Cancel and return to main menu")
             else:
                 print(" [ENTER] ou [C] Confirmar e Iniciar o Processamento")
                 print(" [M] Alterar limite de separação em MB (ex: 8, 50, 100, 200 MB)")
+                print(" [W] Ajustar número de processos concorrentes (atual: " + str(max_workers) + ")")
+                print(" [P] Alternar anonimização de PII (LGPD: CPF, CNPJ, E-mail)")
                 print(" [Z] Alternar geração de arquivo compactado .ZIP")
                 print(" [V] Cancelar e voltar ao menu")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
 
-            escolha_conf = input("\nAction [ENTER to confirm]: ").strip().upper()
+            escolha_conf = input("\nAction / Opção: ").strip().upper()
             if escolha_conf in ("", "C", "S", "SIM", "Y", "YES"):
                 break
             elif escolha_conf in ("V", "0"):
@@ -1237,13 +1380,18 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                         salvar_config(cfg)
                 except ValueError:
                     pass
+            elif escolha_conf == "W":
+                nw = input(f"\nWorkers count (1 to {num_cpus}): ").strip()
+                if nw.isdigit() and 1 <= int(nw) <= num_cpus:
+                    cfg["max_workers"] = int(nw)
+                    max_workers = int(nw)
+                    salvar_config(cfg)
+            elif escolha_conf == "P":
+                cfg["mascarar_pii"] = not cfg.get("mascarar_pii", False)
+                salvar_config(cfg)
             elif escolha_conf == "Z":
                 cfg["gerar_arquivo_zip"] = not cfg.get("gerar_arquivo_zip", True)
                 salvar_config(cfg)
-
-    num_cpus = os.cpu_count() or 4
-    usar_multicore = cfg.get("multicore", True)
-    max_workers = num_cpus if usar_multicore else 1
 
     inicio = time.time()
     limpar_tela()
@@ -1252,7 +1400,8 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"{Cor.TITULO}============================================================================{Cor.RESET}\n")
     print(f"{t('pastas_monitoradas', cfg):<22}: {len(pastas)}")
     print(f"{t('arquivos_localizados', cfg):<22}: {Cor.NEGRITO}{total}{Cor.RESET} ({stats['tamanho_formatado']})")
-    print(f"{t('multicore_paralelo', cfg):<22}: {Cor.VERDE}{t('ativado', cfg)} ({max_workers} cores){Cor.RESET}")
+    print(f"{t('multicore_paralelo', cfg):<22}: {Cor.VERDE}{t('ativado', cfg)} ({max_workers} safe workers){Cor.RESET}")
+    print(f"PII Redaction (LGPD)  : {'ON (CPF/CNPJ/Email/Tel mascarados)' if cfg.get('mascarar_pii', False) else 'OFF'}")
     print(f"{t('pasta_execucao', cfg):<22}: {pasta_destino}\n")
 
     tarefas = [
@@ -1290,6 +1439,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
 
     resultados_processados.sort(key=lambda x: str(x[2]).lower())
 
+    # Índice Mestre Global
     indice_geral = [
         t("base_copilot_titulo", cfg),
         f"- **{t('data_consolida', cfg)}:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
@@ -1300,12 +1450,15 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     ]
 
     blocos_gerais = []
+    blocos_info_docs = []
     blocos_por_pasta: dict[str, list[str]] = {}
     docs_individuais = []
-    hashes_vistos: dict[str, str] = {}
+    hashes_binarios: dict[str, str] = {}
+    hashes_textuais: dict[str, str] = {}
     duplicados = []
     cont_cache = 0
     cont_ocr_itens = 0
+    total_ocr_diag = {"ok": 0, "empty": 0, "error": 0}
 
     for novo_idx, (_, nome_arq, caminho_rel, raiz_nome, meta) in enumerate(resultados_processados, start=1):
         doc_id = f"[{novo_idx:03d}]"
@@ -1314,18 +1467,36 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         if meta.get("ocr_pages", 0) > 0:
             cont_ocr_itens += meta["ocr_pages"]
 
+        # Acumula diagnóstico de 3 estados
+        d_ocr = meta.get("diag_ocr", {})
+        for k in total_ocr_diag:
+            total_ocr_diag[k] += d_ocr.get(k, 0)
+
+        # Deduplicação dupla (binária e textual)
         f_hash = meta.get("hash", "")
+        conteudo_limpo = (meta.get("conteudo") or "").strip()
+        h_textual = hashlib.sha256(conteudo_limpo.encode("utf-8")).hexdigest()[:20] if conteudo_limpo else ""
         aviso_dup = ""
-        if f_hash and f_hash in hashes_vistos:
-            orig_id = hashes_vistos[f_hash]
-            msg_d = f"has identical content to {orig_id}" if lang == "en" else f"possui conteúdo idêntico a {orig_id}"
+
+        if f_hash and f_hash in hashes_binarios:
+            orig_id = hashes_binarios[f_hash]
+            msg_d = f"has identical binary file to {orig_id}" if lang == "en" else f"possui arquivo binário idêntico a {orig_id}"
             duplicados.append(f"- `{caminho_rel}` ({doc_id}) {msg_d}")
-            aviso_dup = f" *(Identical to {orig_id})*" if lang == "en" else f" *(Idêntico a {orig_id})*"
-        elif f_hash:
-            hashes_vistos[f_hash] = f"{doc_id} (`{caminho_rel}`)"
+            aviso_dup = f" *(Binary identical to {orig_id})*" if lang == "en" else f" *(Binariamente idêntico a {orig_id})*"
+        elif h_textual and h_textual in hashes_textuais:
+            orig_id = hashes_textuais[h_textual]
+            msg_d = f"has equivalent textual content to {orig_id}" if lang == "en" else f"possui conteúdo textual equivalente a {orig_id}"
+            duplicados.append(f"- `{caminho_rel}` ({doc_id}) {msg_d}")
+            aviso_dup = f" *(Equivalent text to {orig_id})*" if lang == "en" else f" *(Texto equivalente a {orig_id})*"
+        else:
+            if f_hash:
+                hashes_binarios[f_hash] = f"{doc_id} (`{caminho_rel}`)"
+            if h_textual:
+                hashes_textuais[h_textual] = f"{doc_id} (`{caminho_rel}`)"
 
         tag_ocr = f" *(OCR: {meta['ocr_pages']})*" if meta.get("ocr_pages", 0) > 0 else ""
-        indice_geral.append(f"- **{doc_id}** `{caminho_rel}`{tag_ocr}{aviso_dup}")
+        linha_indice = f"- **{doc_id}** `{caminho_rel}`{tag_ocr}{aviso_dup}"
+        indice_geral.append(linha_indice)
 
         meta_linhas = []
         meta_info = meta.get("meta_info", {})
@@ -1357,11 +1528,16 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             f"{meta['conteudo'] if meta.get('conteudo') else t('sem_texto', cfg)}\n"
         )
         blocos_gerais.append(bloco_md)
+        blocos_info_docs.append((doc_id, caminho_rel, bloco_md))
         blocos_por_pasta.setdefault(raiz_nome, []).append(bloco_md)
         docs_individuais.append((doc_id, nome_arq, caminho_rel, bloco_md))
 
     cabecalho_str = "\n".join(indice_geral) + "\n"
     arquivos_gerados = []
+
+    # 0. Geração de 00_INDICE_MESTRE.md isolado
+    (pasta_destino / "00_INDICE_MESTRE.md").write_text(cabecalho_str, encoding="utf-8")
+    arquivos_gerados.append("00_INDICE_MESTRE.md")
 
     # 1. Estratégia A: Arquivo Único Consolidado
     if cfg.get("gerar_arquivo_unico", True):
@@ -1373,48 +1549,99 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         tam_mb = arq_unico.stat().st_size / (1024 * 1024)
         arquivos_gerados.append(f"corpus_completo.md ({tam_mb:.2f} MB)")
 
-    # 2. Estratégia B: Divisão por Tamanho em MB
-    if cfg.get("dividir_por_tamanho", True) and blocos_gerais:
+    # 2. Estratégia B: Particionamento Estrito por Limite MB com Índice Local
+    if cfg.get("dividir_por_tamanho", True) and blocos_info_docs:
         limite_mb = float(cfg.get("limite_mb_por_parte", 8.0))
         limite_bytes = int(limite_mb * 1024 * 1024)
 
         for antigo in pasta_destino.glob("corpus_parte_*.md"):
             antigo.unlink(missing_ok=True)
 
+        partes_fatiadas = []
         parte_num = 1
-        buffer_atual = [cabecalho_str]
-        bytes_atuais = len(cabecalho_str.encode("utf-8"))
+        buffer_docs = []
+        buffer_bytes = 0
+        docs_nesta_parte = []
 
-        for b in blocos_gerais:
-            tam_b = len(b.encode("utf-8"))
-            if bytes_atuais + tam_b > limite_bytes and len(buffer_atual) > 1:
+        for doc_id, c_rel, b_texto in blocos_info_docs:
+            tam_b = len(b_texto.encode("utf-8"))
+
+            # Se um documento individual excede o limite sozinho, divide em trechos lógicos
+            if tam_b > limite_bytes:
+                paragrafos = b_texto.split("\n\n")
+                trecho_buffer = []
+                trecho_bytes = 0
+                trecho_num = 1
+                for par in paragrafos:
+                    tam_par = len((par + "\n\n").encode("utf-8"))
+                    if trecho_bytes + tam_par > limite_bytes and trecho_buffer:
+                        # Fecha parte atual
+                        nome_p = f"corpus_parte_{parte_num:02d}.md"
+                        cab_local = (
+                            f"# BASE DOCUMENTAL CORPORATIVA - PARTE {parte_num:02d}\n"
+                            f"## ÍNDICE DESTA PARTE:\n- **{doc_id}** `{c_rel}` (Trecho {trecho_num})\n"
+                            f"*(Consulte 00_INDICE_MESTRE.md para o catálogo global)*\n\n"
+                        )
+                        conteudo_parte = cab_local + "\n\n".join(trecho_buffer)
+                        (pasta_destino / nome_p).write_text(conteudo_parte, encoding="utf-8")
+                        arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                        parte_num += 1
+                        trecho_num += 1
+                        trecho_buffer = [par]
+                        trecho_bytes = tam_par
+                    else:
+                        trecho_buffer.append(par)
+                        trecho_bytes += tam_par
+                if trecho_buffer:
+                    nome_p = f"corpus_parte_{parte_num:02d}.md"
+                    cab_local = (
+                        f"# BASE DOCUMENTAL CORPORATIVA - PARTE {parte_num:02d}\n"
+                        f"## ÍNDICE DESTA PARTE:\n- **{doc_id}** `{c_rel}` (Trecho {trecho_num})\n"
+                        f"*(Consulte 00_INDICE_MESTRE.md para o catálogo global)*\n\n"
+                    )
+                    conteudo_parte = cab_local + "\n\n".join(trecho_buffer)
+                    (pasta_destino / nome_p).write_text(conteudo_parte, encoding="utf-8")
+                    arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                    parte_num += 1
+                continue
+
+            if buffer_bytes + tam_b > limite_bytes and buffer_docs:
                 nome_p = f"corpus_parte_{parte_num:02d}.md"
-                caminho_p = pasta_destino / nome_p
-                caminho_p.write_text("".join(buffer_atual), encoding="utf-8")
-                arquivos_gerados.append(f"{nome_p} ({caminho_p.stat().st_size / (1024*1024):.2f} MB)")
-                parte_num += 1
-                cab_cont = (
-                    f"# BASE DOCUMENTAL - PARTE {parte_num:02d}\n"
-                    f"*(See Master Index in Part 01 / Consulte o Índice Mestre na Parte 01)*\n\n"
+                linhas_indice_local = [f"- **{did}** `{crl}`" for did, crl in docs_nesta_parte]
+                cab_local = (
+                    f"# BASE DOCUMENTAL CORPORATIVA - PARTE {parte_num:02d}\n"
+                    f"## ÍNDICE DESTA PARTE ({len(docs_nesta_parte)} documentos):\n"
+                    + "\n".join(linhas_indice_local)
+                    + "\n\n*(Consulte 00_INDICE_MESTRE.md para o catálogo global de todos os documentos)*\n\n"
                 )
-                buffer_atual = [cab_cont]
-                bytes_atuais = len(cab_cont.encode("utf-8"))
+                (pasta_destino / nome_p).write_text(cab_local + "".join(buffer_docs), encoding="utf-8")
+                arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                parte_num += 1
+                buffer_docs = [b_texto]
+                buffer_bytes = tam_b
+                docs_nesta_parte = [(doc_id, c_rel)]
+            else:
+                buffer_docs.append(b_texto)
+                buffer_bytes += tam_b
+                docs_nesta_parte.append((doc_id, c_rel))
 
-            buffer_atual.append(b)
-            bytes_atuais += tam_b
-
-        if len(buffer_atual) > 1:
+        if buffer_docs:
             nome_p = f"corpus_parte_{parte_num:02d}.md"
-            caminho_p = pasta_destino / nome_p
-            caminho_p.write_text("".join(buffer_atual), encoding="utf-8")
-            arquivos_gerados.append(f"{nome_p} ({caminho_p.stat().st_size / (1024*1024):.2f} MB)")
+            linhas_indice_local = [f"- **{did}** `{crl}`" for did, crl in docs_nesta_parte]
+            cab_local = (
+                f"# BASE DOCUMENTAL CORPORATIVA - PARTE {parte_num:02d}\n"
+                f"## ÍNDICE DESTA PARTE ({len(docs_nesta_parte)} documentos):\n"
+                + "\n".join(linhas_indice_local)
+                + "\n\n*(Consulte 00_INDICE_MESTRE.md para o catálogo global de todos os documentos)*\n\n"
+            )
+            (pasta_destino / nome_p).write_text(cab_local + "".join(buffer_docs), encoding="utf-8")
+            arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
 
-    # 3. Estratégia C: Divisão por Quantidade de Documentos
+    # 3. Estratégia C: Lotes
     if cfg.get("dividir_por_quantidade", False) and blocos_gerais:
         qtd_por_lote = max(1, int(cfg.get("qtd_docs_por_parte", 50)))
         dir_lotes = pasta_destino / "por_lotes"
         dir_lotes.mkdir(parents=True, exist_ok=True)
-
         for antigo in dir_lotes.glob("lote_*.md"):
             antigo.unlink(missing_ok=True)
 
@@ -1429,7 +1656,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             caminho_lote.write_text(topo_lote + "".join(fatia), encoding="utf-8")
         arquivos_gerados.append(f"por_lotes/*.md ({len(range(0, len(blocos_gerais), qtd_por_lote))} batches)")
 
-    # 4. Estratégia D: 1 Arquivo Markdown por Arquivo Original (Individual 1:1)
+    # 4. Estratégia D: 1:1 Individual
     if cfg.get("gerar_individual_por_arquivo", False) and docs_individuais:
         dir_indiv = pasta_destino / "individual"
         dir_indiv.mkdir(parents=True, exist_ok=True)
@@ -1438,9 +1665,9 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         for doc_id, nome_arq, caminho_rel, bloco_md in docs_individuais:
             nome_limpo = sanitizar_nome_arquivo(f"{doc_id}_{nome_arq}.md")
             (dir_indiv / nome_limpo).write_text(bloco_md.strip(), encoding="utf-8")
-        arquivos_gerados.append(f"individual/*.md ({len(docs_individuais)} individual 1:1 docs)")
+        arquivos_gerados.append(f"individual/*.md ({len(docs_individuais)} individual docs)")
 
-    # 5. Estratégia E: Consolidado por Pasta Raiz / Departamento
+    # 5. Estratégia E: Por Pasta
     if cfg.get("gerar_por_pasta_raiz", True) and blocos_por_pasta:
         dir_por_pasta = pasta_destino / "por_pasta"
         dir_por_pasta.mkdir(parents=True, exist_ok=True)
@@ -1491,22 +1718,40 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         tam_jsonl_mb = arq_jsonl.stat().st_size / (1024 * 1024)
         arquivos_gerados.append(f"corpus_rag.jsonl ({tam_jsonl_mb:.2f} MB)")
 
+    # Estimativa de tokens do corpus
+    total_chars = sum(len(b) for b in blocos_gerais)
+    tokens_estimados = total_chars // 4
+    aviso_contexto = ""
+    if tokens_estimados > 128_000:
+        aviso_contexto = (
+            f"\n> ⚠️ **Aviso de Janela de Contexto:** O corpus totaliza ~{tokens_estimados:,} tokens. "
+            f"Para consultas no Microsoft 365 Copilot, prefira anexar partes fatiadas (`corpus_parte_*.md`) "
+            f"ou os consolidados por departamento (`por_pasta/`) para evitar saturação da janela do modelo."
+        )
+
     duracao = time.time() - inicio
     relatorio = [
         t("relatorio_auditoria_titulo", cfg),
         f"- **Date/Time / Data:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
-        f"- **{t('tempo_total', cfg)}:** {duracao:.2f} s ({max_workers} active cores)",
+        f"- **{t('tempo_total', cfg)}:** {duracao:.2f} s ({max_workers} safe workers)",
         f"- **{t('total_encontrados', cfg)}:** {total}",
-        f"- **{t('vol_original', cfg)}:** {stats['tamanho_formatado']}",
+        f"- **{t('vol_original', cfg)}:** {stats['tamanho_formatado']} (~{tokens_estimados:,} tokens)",
         f"- **{t('indexados_sucesso', cfg)}:** {len(resultados_processados)}",
         f"- **{t('recup_cache', cfg)}:** {cont_cache}",
         f"- **{t('docs_ocr_aplicado', cfg)}:** {cont_ocr_itens}",
+        f"  - OCR Sucesso (Score >= 0.50): {total_ocr_diag['ok']}",
+        f"  - Imagens Sem Texto Legível: {total_ocr_diag['empty']}",
+        f"  - Falhas Técnicas de OCR: {total_ocr_diag['error']}",
         f"- **{t('docs_identicos', cfg)}:** {len(duplicados)}",
-        f"- **{t('falhas_leitura', cfg)}:** {len(erros)}\n",
+        f"- **{t('falhas_leitura', cfg)}:** {len(erros)}",
+        f"- **Filtro PII / LGPD:** {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}\n",
         f"## {t('estrutura_saida', cfg)}:",
     ]
     for ag in arquivos_gerados:
         relatorio.append(f"- `{ag}`")
+
+    if aviso_contexto:
+        relatorio.append(aviso_contexto)
 
     if duplicados:
         relatorio.append(f"\n## {t('docs_identicos_detectados', cfg)}:")
@@ -1520,7 +1765,6 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     (pasta_destino / "relatorio_auditoria.md").write_text(texto_relatorio, encoding="utf-8")
     (pasta_destino / "audit_report.md").write_text(texto_relatorio, encoding="utf-8")
 
-    # Grava prompts nos dois idiomas para uso universal
     (pasta_destino / "PROMPT_PARA_COPILOT.txt").write_text(PROMPT_SISTEMA_COPILOT_PT, encoding="utf-8")
     (pasta_destino / "COPILOT_PROMPT.txt").write_text(PROMPT_SISTEMA_COPILOT_EN, encoding="utf-8")
 
@@ -1546,7 +1790,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"{Cor.VERDE}============================================================================{Cor.RESET}")
     print(f"{t('pasta_execucao', cfg):<22}: {Cor.NEGRITO}{pasta_destino}{Cor.RESET}")
     print(f"{t('sucesso_total', cfg):<22}: {len(resultados_processados)} / {total} (Cache: {cont_cache} | OCR: {cont_ocr_itens})")
-    print(f"{t('volume_proc', cfg):<22}: {stats['tamanho_formatado']}")
+    print(f"{t('volume_proc', cfg):<22}: {stats['tamanho_formatado']} (~{tokens_estimados:,} tokens)")
 
     print(f"\n{t('disponiveis_copilot', cfg)}")
     for ag in arquivos_gerados:
@@ -1730,29 +1974,31 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
     while True:
         limpar_tela()
         lang = obter_idioma(cfg)
-        print(f"{Cor.TITULO}=== OUTPUT, SPLITTING, OCR & LANGUAGE SETTINGS ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÃO DE SAÍDAS, PARTICIONAMENTO, OCR E IDIOMA ==={Cor.RESET}\n")
+        print(f"{Cor.TITULO}=== SETTINGS (v5.0) - OUTPUT, OCR, PII & CONCURRENCY ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÕES (v5.0) - SAÍDAS, OCR, LGPD E CONCORRÊNCIA ==={Cor.RESET}\n")
+
+        num_cpus = os.cpu_count() or 4
+        workers_atual = int(cfg.get("max_workers", min(4, num_cpus)))
 
         if lang == "en":
             print(f"{Cor.NEGRITO}--- Markdown & RAG Output Options ---{Cor.RESET}")
             print(f"[1] Generate Single File (corpus_completo.md)       : {'YES' if cfg.get('gerar_arquivo_unico', True) else 'NO'}")
-            print(f"[2] Split by Size Limit in MB                     : {'YES' if cfg.get('dividir_por_tamanho', True) else 'NO'}")
+            print(f"[2] Split by Size Limit in MB (Strict Chunks)     : {'YES' if cfg.get('dividir_por_tamanho', True) else 'NO'}")
             print(f"[3]   ↳ Maximum Size per Part (MB)                : {cfg.get('limite_mb_por_parte', 8.0)} MB")
             print(f"[4] Split by Document Count per Batch             : {'YES' if cfg.get('dividir_por_quantidade', False) else 'NO'}")
             print(f"[5]   ↳ Documents per Batch                       : {cfg.get('qtd_docs_por_parte', 50)} docs")
             print(f"[6] Generate 1 Markdown per Document (1:1)        : {'YES' if cfg.get('gerar_individual_por_arquivo', False) else 'NO'}")
             print(f"[7] Generate Folder/Departmental Consolidated     : {'YES' if cfg.get('gerar_por_pasta_raiz', True) else 'NO'}")
             print(f"[8] Generate Structured RAG Dataset (corpus_rag)  : {'YES' if cfg.get('gerar_jsonl', True) else 'NO'}")
-            print(f"\n{Cor.NEGRITO}--- Compression & Organization ---{Cor.RESET}")
-            print(f"[9] Save in Timestamped Folder per Run            : {'YES' if cfg.get('usar_pasta_timestamp', True) else 'NO'}")
-            print(f"[10] Generate Compressed Package (.ZIP)           : {'YES' if cfg.get('gerar_arquivo_zip', True) else 'NO'}")
+            print(f"\n{Cor.NEGRITO}--- Privacy, Security & Concurrency ---{Cor.RESET}")
+            print(f"[9] PII Redaction (Mask CPF, CNPJ, Email, Phone)  : {'ENABLED' if cfg.get('mascarar_pii', False) else 'DISABLED'}")
+            print(f"[10] Safe Concurrent CPU Workers (RAM Protect)    : {workers_atual} workers (max: {num_cpus})")
+            print(f"[11] Generate Compressed Package (.ZIP)           : {'YES' if cfg.get('gerar_arquivo_zip', True) else 'NO'}")
             print(f"\n{Cor.NEGRITO}--- Local Optical Character Recognition (OCR) ---{Cor.RESET}")
-            print(f"[11] OCR in PDFs (Scanned & Mixed Pages)          : {'ENABLED' if cfg.get('usar_ocr_em_pdf', True) else 'DISABLED'}")
-            print(f"[12] OCR in Embedded Images (Word, Excel, PPTX)   : {'ENABLED' if cfg.get('usar_ocr_em_imagens_embutidas', True) else 'DISABLED'}")
-            print(f"[13] DPI Resolution for PDF OCR                   : {cfg.get('dpi_ocr_pdf', 200)} DPI")
-            print(f"[14] Minimum Image Dimension for OCR (px)         : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
-            print(f"[15] OCR Minimum Confidence Threshold (Score)     : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
-            print(f"\n{Cor.NEGRITO}--- Performance & Destination ---{Cor.RESET}")
-            print(f"[16] Multicore Concurrent CPU Processing          : {'ENABLED' if cfg.get('multicore', True) else 'DISABLED'}")
+            print(f"[12] OCR in PDFs (Scanned & Mixed Pages)          : {'ENABLED' if cfg.get('usar_ocr_em_pdf', True) else 'DISABLED'}")
+            print(f"[13] OCR in Embedded Images (Word, Excel, PPTX)   : {'ENABLED' if cfg.get('usar_ocr_em_imagens_embutidas', True) else 'DISABLED'}")
+            print(f"[14] DPI Resolution for PDF OCR                   : {cfg.get('dpi_ocr_pdf', 200)} DPI")
+            print(f"[15] Minimum Image Dimension for OCR (px)         : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
+            print(f"[16] OCR Minimum Confidence Threshold (Score)     : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
             print(f"[17] Change Output Folder (Current: {cfg.get('pasta_saida')})")
             print(f"[L] Switch Language / Idioma                      : English (Click to toggle)")
             print(f"\n{Cor.AMARELO}[R] Restore Factory Default Settings{Cor.RESET}")
@@ -1760,24 +2006,23 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         else:
             print(f"{Cor.NEGRITO}--- Modalidades de Saída Markdown & RAG ---{Cor.RESET}")
             print(f"[1] Gerar Arquivo Único (corpus_completo.md)       : {'SIM' if cfg.get('gerar_arquivo_unico', True) else 'NÃO'}")
-            print(f"[2] Dividir por Tamanho Máximo em MB              : {'SIM' if cfg.get('dividir_por_tamanho', True) else 'NÃO'}")
+            print(f"[2] Dividir por Tamanho Máximo em MB (Estrito)    : {'SIM' if cfg.get('dividir_por_tamanho', True) else 'NÃO'}")
             print(f"[3]   ↳ Limite de Tamanho por Parte (MB)          : {cfg.get('limite_mb_por_parte', 8.0)} MB")
             print(f"[4] Dividir por Quantidade de Documentos por Lote : {'SIM' if cfg.get('dividir_por_quantidade', False) else 'NÃO'}")
             print(f"[5]   ↳ Quantidade de Docs por Lote               : {cfg.get('qtd_docs_por_parte', 50)} docs")
             print(f"[6] Gerar 1 Arquivo Markdown por Documento (1:1)  : {'SIM' if cfg.get('gerar_individual_por_arquivo', False) else 'NÃO'}")
             print(f"[7] Gerar Consolidado por Pasta Departamental      : {'SIM' if cfg.get('gerar_por_pasta_raiz', True) else 'NÃO'}")
             print(f"[8] Gerar Base Estruturada RAG (corpus_rag.jsonl) : {'SIM' if cfg.get('gerar_jsonl', True) else 'NÃO'}")
-            print(f"\n{Cor.NEGRITO}--- Compactação & Organização com Timestamp ---{Cor.RESET}")
-            print(f"[9] Salvar em Pasta com Timestamp por Execução    : {'SIM' if cfg.get('usar_pasta_timestamp', True) else 'NÃO'}")
-            print(f"[10] Gerar Pacote Compactado (.ZIP) ao final      : {'SIM' if cfg.get('gerar_arquivo_zip', True) else 'NÃO'}")
+            print(f"\n{Cor.NEGRITO}--- Privacidade, Segurança e Concorrência ---{Cor.RESET}")
+            print(f"[9] Anonimização de PII (LGPD: CPF, CNPJ, Email)  : {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}")
+            print(f"[10] Processos Concorrentes Seguros (Anti-Estouro): {workers_atual} workers (máx: {num_cpus})")
+            print(f"[11] Gerar Pacote Compactado (.ZIP) ao final      : {'SIM' if cfg.get('gerar_arquivo_zip', True) else 'NÃO'}")
             print(f"\n{Cor.NEGRITO}--- Reconhecimento Óptico de Caracteres (OCR Local) ---{Cor.RESET}")
-            print(f"[11] OCR em PDFs (Escaneados e Imagens Mistas)    : {'ATIVADO' if cfg.get('usar_ocr_em_pdf', True) else 'DESATIVADO'}")
-            print(f"[12] OCR em Imagens Embutidas (Word, Excel, PPTX) : {'ATIVADO' if cfg.get('usar_ocr_em_imagens_embutidas', True) else 'DESATIVADO'}")
-            print(f"[13] Resolução DPI para OCR em PDF               : {cfg.get('dpi_ocr_pdf', 200)} DPI")
-            print(f"[14] Dimensão mínima de imagem para OCR (px)     : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
-            print(f"[15] Limiar de Confiança OCR (Score Mínimo)       : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
-            print(f"\n{Cor.NEGRITO}--- Desempenho & Destino ---{Cor.RESET}")
-            print(f"[16] Processamento Multicore Concorrente (CPU)   : {'ATIVADO' if cfg.get('multicore', True) else 'DESATIVADO'}")
+            print(f"[12] OCR em PDFs (Escaneados e Imagens Mistas)    : {'ATIVADO' if cfg.get('usar_ocr_em_pdf', True) else 'DESATIVADO'}")
+            print(f"[13] OCR em Imagens Embutidas (Word, Excel, PPTX) : {'ATIVADO' if cfg.get('usar_ocr_em_imagens_embutidas', True) else 'DESATIVADO'}")
+            print(f"[14] Resolução DPI para OCR em PDF               : {cfg.get('dpi_ocr_pdf', 200)} DPI")
+            print(f"[15] Dimensão mínima de imagem para OCR (px)     : {cfg.get('min_dimensao_imagem_ocr', 150)} px")
+            print(f"[16] Limiar de Confiança OCR (Score Mínimo)       : {cfg.get('limiar_confianca_ocr', 0.50):.2f}")
             print(f"[17] Alterar Pasta de Saída (Atual: {cfg.get('pasta_saida')})")
             print(f"[L] Alternar Idioma / Switch Language             : Português (Clique para alternar)")
             print(f"\n{Cor.AMARELO}[R] Restaurar Configuração Padrão Original{Cor.RESET}")
@@ -1811,22 +2056,26 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         elif op == "8":
             cfg["gerar_jsonl"] = not cfg.get("gerar_jsonl", True)
         elif op == "9":
-            cfg["usar_pasta_timestamp"] = not cfg.get("usar_pasta_timestamp", True)
+            cfg["mascarar_pii"] = not cfg.get("mascarar_pii", False)
         elif op == "10":
-            cfg["gerar_arquivo_zip"] = not cfg.get("gerar_arquivo_zip", True)
+            nw = input(f"Safe workers (1 to {num_cpus}): ").strip()
+            if nw.isdigit() and 1 <= int(nw) <= num_cpus:
+                cfg["max_workers"] = int(nw)
         elif op == "11":
-            cfg["usar_ocr_em_pdf"] = not cfg.get("usar_ocr_em_pdf", True)
+            cfg["gerar_arquivo_zip"] = not cfg.get("gerar_arquivo_zip", True)
         elif op == "12":
-            cfg["usar_ocr_em_imagens_embutidas"] = not cfg.get("usar_ocr_em_imagens_embutidas", True)
+            cfg["usar_ocr_em_pdf"] = not cfg.get("usar_ocr_em_pdf", True)
         elif op == "13":
+            cfg["usar_ocr_em_imagens_embutidas"] = not cfg.get("usar_ocr_em_imagens_embutidas", True)
+        elif op == "14":
             val = input("DPI (e.g. 150, 200, 300): ").strip()
             if val.isdigit() and int(val) >= 100:
                 cfg["dpi_ocr_pdf"] = int(val)
-        elif op == "14":
+        elif op == "15":
             val = input("Minimum dimension px (e.g. 100, 150, 200): ").strip()
             if val.isdigit() and int(val) >= 20:
                 cfg["min_dimensao_imagem_ocr"] = int(val)
-        elif op == "15":
+        elif op == "16":
             val = input("Minimum confidence score (0.10 to 0.90): ").strip().replace(",", ".")
             try:
                 sc = float(val)
@@ -1834,8 +2083,6 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
                     cfg["limiar_confianca_ocr"] = sc
             except ValueError:
                 pass
-        elif op == "16":
-            cfg["multicore"] = not cfg.get("multicore", True)
         elif op == "17":
             novo = input("Output folder: ").strip().strip('"')
             if novo:
@@ -1865,18 +2112,20 @@ def menu_principal():
         cfg["idioma"] = lang
 
         qtd_pastas = len(cfg["pastas_entrada"])
-        arquivos = listar_arquivos_elegiveis(cfg["pastas_entrada"], cfg["extensoes"]) if qtd_pastas else []
+        arquivos, _ = listar_arquivos_elegiveis(cfg["pastas_entrada"], cfg["extensoes"]) if qtd_pastas else ([], [])
         stats = obter_estatisticas_arquivos(arquivos) if arquivos else {"total_arquivos": 0, "tamanho_formatado": "0 B"}
         num_cpus = os.cpu_count() or 4
+        workers_atual = int(cfg.get("max_workers", min(4, num_cpus)))
 
         print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
         print(f"{Cor.TITULO}   {t('titulo_app', cfg)}{Cor.RESET}")
-        print(f"{Cor.TITULO}   {t('subtitulo_app', cfg, cpus=num_cpus)}{Cor.RESET}")
+        print(f"{Cor.TITULO}   {t('subtitulo_app', cfg, workers=workers_atual)}{Cor.RESET}")
         print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
         print(f" {t('status_atual', cfg)}")
         print(f"  • {t('pastas_monitoradas', cfg):<25}: {Cor.NEGRITO}{qtd_pastas}{Cor.RESET}")
         print(f"  • {t('arquivos_localizados', cfg):<25}: {Cor.VERDE}{Cor.NEGRITO}{stats['total_arquivos']}{Cor.RESET} ({Cor.AMARELO}{stats['tamanho_formatado']}{Cor.RESET})")
-        print(f"  • {t('multicore_paralelo', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('multicore', True) else Cor.AMARELO + t('desativado', cfg)} ({num_cpus} cores){Cor.RESET}")
+        print(f"  • {t('multicore_paralelo', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('multicore', True) else Cor.AMARELO + t('desativado', cfg)} ({workers_atual} safe workers){Cor.RESET}")
+        print(f"  • PII Redaction (LGPD)     : {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}")
         print(f"  • {t('ocr_pdf_img', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_pdf', True) else Cor.AMARELO + t('desativado', cfg)}{Cor.RESET}")
         print(f"  • {t('ocr_embutidas', cfg):<25}: {Cor.VERDE + t('ativado', cfg) if cfg.get('usar_ocr_em_imagens_embutidas', True) else Cor.AMARELO + t('desativado', cfg)} (Word/Excel/PPTX){Cor.RESET}")
 
@@ -1941,6 +2190,14 @@ def menu_principal():
 if __name__ == "__main__":
     if "--auto" in sys.argv:
         cfg_auto = carregar_config()
+        if "--redact-pii" in sys.argv:
+            cfg_auto["mascarar_pii"] = True
+        if "--workers" in sys.argv:
+            try:
+                w_idx = sys.argv.index("--workers")
+                cfg_auto["max_workers"] = int(sys.argv[w_idx + 1])
+            except Exception:
+                pass
         executar_pipeline(cfg_auto, pausar_no_final=False)
     else:
         try:

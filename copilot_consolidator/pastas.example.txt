@@ -1,0 +1,5 @@
+# Folders to consolidate (one per line)
+# Pastas para consolidar (uma por linha)
+./exemplos_teste/01_Financeiro
+./exemplos_teste/02_Juridico_Compliance
+./exemplos_teste/03_Operacoes_TI
