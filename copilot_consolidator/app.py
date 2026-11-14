@@ -247,10 +247,10 @@ CONFIG_PADRAO = {
     "gerar_individual_por_arquivo": False,
     "gerar_por_pasta_raiz": True,
     "gerar_jsonl": True,
-    # Segurança, Concorrência e PII:
+    # Segurança, Concorrência e PII (Safe-by-default para Copilot / Nuvem):
     "usar_pasta_timestamp": True,
     "gerar_arquivo_zip": True,
-    "mascarar_pii": False,
+    "mascarar_pii": True,
     "max_workers": min(4, os.cpu_count() or 4),
     # Configurações de OCR:
     "usar_ocr_em_pdf": True,
@@ -271,6 +271,23 @@ RE_CNPJ = re.compile(r'\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b')
 RE_EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
 RE_TELEFONE = re.compile(r'\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}|\d{4})[-.\s]?\d{4}\b')
 
+# Padrões para correção de Mojibake (UTF-8 interpretado como CP1252/Latin-1)
+PADRAO_MOJIBAKE = re.compile(r'(?:Ã[\x80-\xbf]|Â[\x80-\xbf]|â€[“”—‘’™\x80-\xbf]|[\w]Ã[\w])')
+
+# Padrões para correção de palavras quebradas por OCR (erros de segmentação / kerning)
+PADRAO_FONOTATICO_OCR = re.compile(
+    r'\b([A-Za-zÀ-ÿ]{2,})\s+(nt|nd|mp|mb|rt|rd|lt|ld|lh|nh|rr|ss|ç)([a-zà-ÿ]+)\b',
+    re.IGNORECASE,
+)
+PADRAO_SUFIXOS_OCR = re.compile(
+    r'\b([A-Za-zÀ-ÿ]{3,})\s+(cao|ções|mentos?|idades?|mentais?|tivos?|tivas?|mente|ficados?|ficações|ficação)\b',
+    re.IGNORECASE,
+)
+PADRAO_PREFIXOS_OCR = re.compile(
+    r'\b(auto|tele|micro|macro|sub|sobre|contra|extra|multi|inter)\s+([a-zà-ÿ]{4,})\b',
+    re.IGNORECASE,
+)
+
 
 def redigir_pii(texto: str) -> str:
     """Aplica anonimização local em dados sensíveis (CPF, CNPJ, E-mail, Telefone)."""
@@ -281,6 +298,94 @@ def redigir_pii(texto: str) -> str:
     texto = RE_EMAIL.sub("[EMAIL REDIGIDO]", texto)
     texto = RE_TELEFONE.sub("[TELEFONE REDIGIDO]", texto)
     return texto
+
+
+def reparar_mojibake(texto: str) -> tuple[str, int]:
+    """
+    Detecta e corrige corrupções clássicas de mojibake (ex: UTF-8 lido como CP1252/Latin-1 e re-salvo).
+    Exemplos: 'ObservaÃ§Ã£o' -> 'Observação', 'MÃ©todo' -> 'Método', 'nÃ£o' -> 'não'.
+    Retorna (texto_corrigido, total_correcoes).
+    """
+    if not texto:
+        return texto, 0
+
+    texto_trabalho = texto.lstrip("\ufeff")
+    matches = PADRAO_MOJIBAKE.findall(texto_trabalho)
+    if not matches:
+        return texto_trabalho, 0
+
+    total_correcoes = len(matches)
+
+    # 1. Tentativa global: documento inteiro (mais rápido e consistente)
+    try:
+        candidato = texto_trabalho.encode("cp1252").decode("utf-8")
+        if not PADRAO_MOJIBAKE.search(candidato):
+            return candidato, total_correcoes
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+
+    # 2. Tentativa linha por linha com fallback resiliente
+    linhas = texto_trabalho.splitlines(keepends=True)
+    linhas_corrigidas = []
+    correcoes_feitas = 0
+
+    for linha in linhas:
+        if PADRAO_MOJIBAKE.search(linha):
+            try:
+                linha_recod = linha.encode("cp1252").decode("utf-8")
+                linhas_corrigidas.append(linha_recod)
+                correcoes_feitas += len(PADRAO_MOJIBAKE.findall(linha))
+                continue
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+
+            # 3. Tentativa token a token se a linha tiver caracteres fora de CP1252
+            def substituir_token(match):
+                nonlocal correcoes_feitas
+                tok = match.group(0)
+                try:
+                    c = tok.encode("cp1252").decode("utf-8")
+                    correcoes_feitas += 1
+                    return c
+                except Exception:
+                    return tok
+
+            token_regex = re.compile(r'\S*(?:Ã[\x80-\xbf]|Â[\x80-\xbf]|â€[“”—‘’™\x80-\xbf])\S*')
+            linha_recod = token_regex.sub(substituir_token, linha)
+            linhas_corrigidas.append(linha_recod)
+        else:
+            linhas_corrigidas.append(linha)
+
+    return "".join(linhas_corrigidas), correcoes_feitas or total_correcoes
+
+
+def corrigir_espacos_ocr(texto: str) -> tuple[str, int]:
+    """
+    Remove espaços espúrios inseridos no meio de palavras pelo OCR (erros de segmentação / kerning).
+    Exemplos: 'Aute nticacao' -> 'Autenticacao', 'comprova nte' -> 'comprovante', 'docu mento' -> 'documento'.
+    Retorna (texto_corrigido, total_correcoes).
+    """
+    if not texto:
+        return texto, 0
+
+    total_correcoes = 0
+
+    def contar_sub(pat, t):
+        nonlocal total_correcoes
+        achados = len(pat.findall(t))
+        total_correcoes += achados
+        return pat.sub(r'\1\2\3' if pat == PADRAO_FONOTATICO_OCR else r'\1\2', t)
+
+    t_atual = texto
+    for _ in range(2):
+        t_ant = t_atual
+        t_atual = contar_sub(PADRAO_FONOTATICO_OCR, t_atual)
+        t_atual = contar_sub(PADRAO_SUFIXOS_OCR, t_atual)
+        t_atual = contar_sub(PADRAO_PREFIXOS_OCR, t_atual)
+        if t_atual == t_ant:
+            break
+
+    return t_atual, total_correcoes
 
 
 def obter_idioma(cfg: dict) -> str:
@@ -301,7 +406,7 @@ def obter_idioma(cfg: dict) -> str:
 
 
 def t(chave: str, cfg: dict, **kwargs) -> str:
-    lang = obter_idioma(cfg)
+    lang = cfg.get("idioma") if (cfg and "idioma" in cfg) else obter_idioma(cfg)
     dicionario = I18N.get(lang, I18N["pt"])
     texto = dicionario.get(chave, I18N["pt"].get(chave, chave))
     if kwargs:
@@ -375,12 +480,20 @@ def obter_estatisticas_arquivos(arquivos: list[tuple[Path, Path]]) -> dict:
 
 
 def ler_texto_com_fallback(caminho: Path) -> str:
-    for enc in ("utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"):
+    texto = ""
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1", "iso-8859-1"):
         try:
-            return caminho.read_text(encoding=enc)
+            texto = caminho.read_text(encoding=enc)
+            break
         except UnicodeDecodeError:
             continue
-    return caminho.read_bytes().decode("utf-8", errors="replace")
+    if not texto:
+        try:
+            texto = caminho.read_bytes().decode("utf-8", errors="replace")
+        except Exception:
+            texto = ""
+    texto_corrigido, _ = reparar_mojibake(texto)
+    return texto_corrigido
 
 
 def tabela_para_markdown(linhas: list[list[str]]) -> str:
@@ -519,6 +632,8 @@ def executar_ocr_em_bytes(
         conf_media = (sum(scores) / len(scores)) if scores else 0.0
         texto_bruto = "\n".join(linhas_validas)
         texto_limpo = normalizar_texto_ocr(texto_bruto)
+        texto_limpo, _ = corrigir_espacos_ocr(texto_limpo)
+        texto_limpo, _ = reparar_mojibake(texto_limpo)
         return texto_limpo, conf_media, "ok", None
     except Exception as e:
         return "", 0.0, "error", str(e)
@@ -1169,6 +1284,10 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 conteudo = ler_texto_com_fallback(arq)
                 paginas_rag = [{"pagina": 1, "texto": conteudo}]
 
+        conteudo, n_mojibake = reparar_mojibake(conteudo)
+        for p in paginas_rag:
+            p["texto"], _ = reparar_mojibake(p.get("texto", ""))
+
         if mascarar_pii:
             conteudo = redigir_pii(conteudo)
             for p in paginas_rag:
@@ -1189,6 +1308,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                     "confianca_ocr": confianca_ocr,
                     "paginas_rag": paginas_rag,
                     "diag_ocr": diag_ocr,
+                    "mojibake_repairs": n_mojibake,
                     "data_cache": datetime.now().isoformat(),
                 },
                 ensure_ascii=False,
@@ -1205,6 +1325,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
             "confianca_ocr": confianca_ocr,
             "paginas_rag": paginas_rag,
             "diag_ocr": diag_ocr,
+            "mojibake_repairs": n_mojibake,
             "hash": file_hash,
             "conteudo": conteudo,
         }, None
@@ -1400,8 +1521,12 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"{Cor.TITULO}============================================================================{Cor.RESET}\n")
     print(f"{t('pastas_monitoradas', cfg):<22}: {len(pastas)}")
     print(f"{t('arquivos_localizados', cfg):<22}: {Cor.NEGRITO}{total}{Cor.RESET} ({stats['tamanho_formatado']})")
-    print(f"{t('multicore_paralelo', cfg):<22}: {Cor.VERDE}{t('ativado', cfg)} ({max_workers} safe workers){Cor.RESET}")
-    print(f"PII Redaction (LGPD)  : {'ON (CPF/CNPJ/Email/Tel mascarados)' if cfg.get('mascarar_pii', False) else 'OFF'}")
+    workers_label = f"{max_workers} processos seguros" if lang == "pt" else f"{max_workers} safe workers"
+    print(f"{t('multicore_paralelo', cfg):<22}: {Cor.VERDE}{t('ativado', cfg)} ({workers_label}){Cor.RESET}")
+    pii_ativo = cfg.get("mascarar_pii", True)
+    pii_label = "Privacidade PII (LGPD)" if lang == "pt" else "PII Redaction (Privacy)"
+    pii_desc = ("ATIVADO (CPF/CNPJ/E-mail/Tel mascarados)" if pii_ativo else "DESATIVADO") if lang == "pt" else ("ENABLED (CPF/CNPJ/Email/Phone masked)" if pii_ativo else "DISABLED")
+    print(f"{pii_label:<22}: {Cor.VERDE if pii_ativo else Cor.AMARELO}{pii_desc}{Cor.RESET}")
     print(f"{t('pasta_execucao', cfg):<22}: {pasta_destino}\n")
 
     tarefas = [
@@ -1425,6 +1550,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
             docs_restantes = total - docs_concluidos
             seg_restantes = int(docs_restantes / max(taxa_docs_seg, 0.001))
             eta_str = f"{seg_restantes // 60:02d}:{seg_restantes % 60:02d}"
+            eta_label = "Restante" if lang == "pt" else "ETA"
 
             if erro_str:
                 err_label = "[ERROR]" if lang == "en" else "[ERRO]"
@@ -1435,7 +1561,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                 status_str = f"{Cor.AZUL}[CACHE]{Cor.RESET}" if meta_res["cache"] else f"{Cor.VERDE}[OK]{Cor.RESET}"
                 if meta_res.get("ocr_pages", 0) > 0:
                     status_str += f" {Cor.AMARELO}(+{meta_res['ocr_pages']} OCR){Cor.RESET}"
-                print(f"({docs_concluidos:03d}/{total:03d}) {status_str} {caminho_rel} | ETA: {eta_str}")
+                print(f"({docs_concluidos:03d}/{total:03d}) {status_str} {caminho_rel} | {eta_label}: {eta_str}")
 
     resultados_processados.sort(key=lambda x: str(x[2]).lower())
 
@@ -1557,7 +1683,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         for antigo in pasta_destino.glob("corpus_parte_*.md"):
             antigo.unlink(missing_ok=True)
 
-        partes_fatiadas = []
+        partes_para_gravar = []
         parte_num = 1
         buffer_docs = []
         buffer_bytes = 0
@@ -1583,8 +1709,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                             f"*(Consulte 00_INDICE_MESTRE.md para o catálogo global)*\n\n"
                         )
                         conteudo_parte = cab_local + "\n\n".join(trecho_buffer)
-                        (pasta_destino / nome_p).write_text(conteudo_parte, encoding="utf-8")
-                        arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                        partes_para_gravar.append((nome_p, conteudo_parte))
                         parte_num += 1
                         trecho_num += 1
                         trecho_buffer = [par]
@@ -1600,8 +1725,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                         f"*(Consulte 00_INDICE_MESTRE.md para o catálogo global)*\n\n"
                     )
                     conteudo_parte = cab_local + "\n\n".join(trecho_buffer)
-                    (pasta_destino / nome_p).write_text(conteudo_parte, encoding="utf-8")
-                    arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                    partes_para_gravar.append((nome_p, conteudo_parte))
                     parte_num += 1
                 continue
 
@@ -1614,8 +1738,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                     + "\n".join(linhas_indice_local)
                     + "\n\n*(Consulte 00_INDICE_MESTRE.md para o catálogo global de todos os documentos)*\n\n"
                 )
-                (pasta_destino / nome_p).write_text(cab_local + "".join(buffer_docs), encoding="utf-8")
-                arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+                partes_para_gravar.append((nome_p, cab_local + "".join(buffer_docs)))
                 parte_num += 1
                 buffer_docs = [b_texto]
                 buffer_bytes = tam_b
@@ -1634,8 +1757,18 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
                 + "\n".join(linhas_indice_local)
                 + "\n\n*(Consulte 00_INDICE_MESTRE.md para o catálogo global de todos os documentos)*\n\n"
             )
-            (pasta_destino / nome_p).write_text(cab_local + "".join(buffer_docs), encoding="utf-8")
-            arquivos_gerados.append(f"{nome_p} ({(pasta_destino / nome_p).stat().st_size / (1024*1024):.2f} MB)")
+            partes_para_gravar.append((nome_p, cab_local + "".join(buffer_docs)))
+
+        # Evita redundância de saída: se o corpus couber em 1 parte e o arquivo único estiver ativo,
+        # suprime a parte 01 solteira (corpus_completo.md já representa a base unificada).
+        if len(partes_para_gravar) == 1 and cfg.get("gerar_arquivo_unico", True):
+            pass
+        else:
+            for nome_p, conteudo_parte in partes_para_gravar:
+                caminho_p = pasta_destino / nome_p
+                caminho_p.write_text(conteudo_parte, encoding="utf-8")
+                tam_p_mb = caminho_p.stat().st_size / (1024 * 1024)
+                arquivos_gerados.append(f"{nome_p} ({tam_p_mb:.2f} MB)")
 
     # 3. Estratégia C: Lotes
     if cfg.get("dividir_por_quantidade", False) and blocos_gerais:
@@ -1718,52 +1851,110 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         tam_jsonl_mb = arq_jsonl.stat().st_size / (1024 * 1024)
         arquivos_gerados.append(f"corpus_rag.jsonl ({tam_jsonl_mb:.2f} MB)")
 
-    # Estimativa de tokens do corpus
+    # Detecção de Quase-Duplicados (Alta similaridade de vocabulário e extensão)
+    doc_palavras = []
+    for novo_idx, (_, nome_a, c_rel, r_nome, m) in enumerate(resultados_processados, start=1):
+        doc_id = f"[{novo_idx:03d}]"
+        txt_d = m.get("conteudo") or ""
+        words = set(re.findall(r'\b[a-zA-ZÀ-ÿ]{4,}\b', txt_d.lower()))
+        if len(words) >= 30:
+            doc_palavras.append((doc_id, nome_a, c_rel, words, len(txt_d)))
+
+    quase_duplicados_pt = []
+    quase_duplicados_en = []
+    for i in range(len(doc_palavras)):
+        did1, n1, rel1, w1, l1 = doc_palavras[i]
+        for j in range(i + 1, len(doc_palavras)):
+            did2, n2, rel2, w2, l2 = doc_palavras[j]
+            ratio_l = min(l1, l2) / max(l1, l2) if max(l1, l2) > 0 else 0
+            if ratio_l < 0.60:
+                continue
+            inter = len(w1 & w2)
+            menor_len = min(len(w1), len(w2))
+            if menor_len == 0:
+                continue
+            overlap = inter / menor_len
+            if overlap >= 0.80:
+                pct = overlap * 100
+                quase_duplicados_pt.append(f"- **{did1}** `{rel1}` e **{did2}** `{rel2}`: {pct:.1f}% de sobreposição textual (versão/modelo quase duplicado)")
+                quase_duplicados_en.append(f"- **{did1}** `{rel1}` and **{did2}** `{rel2}`: {pct:.1f}% text overlap (near-duplicate template/version)")
+
+    if quase_duplicados_pt:
+        aviso_qd = (
+            "\n## NOTAS DE SIMILARIDADE E QUASE-DUPLICATAS (ATENÇÃO COPILOT):\n"
+            + "\n".join(quase_duplicados_pt) + "\n"
+        )
+        (pasta_destino / "00_INDICE_MESTRE.md").write_text(cabecalho_str + aviso_qd, encoding="utf-8")
+
+    # Estimativa de tokens do corpus via heurística (4 caracteres por token)
     total_chars = sum(len(b) for b in blocos_gerais)
     tokens_estimados = total_chars // 4
-    aviso_contexto = ""
-    if tokens_estimados > 128_000:
-        aviso_contexto = (
-            f"\n> ⚠️ **Aviso de Janela de Contexto:** O corpus totaliza ~{tokens_estimados:,} tokens. "
-            f"Para consultas no Microsoft 365 Copilot, prefira anexar partes fatiadas (`corpus_parte_*.md`) "
-            f"ou os consolidados por departamento (`por_pasta/`) para evitar saturação da janela do modelo."
-        )
-
     duracao = time.time() - inicio
-    relatorio = [
-        t("relatorio_auditoria_titulo", cfg),
-        f"- **Date/Time / Data:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
-        f"- **{t('tempo_total', cfg)}:** {duracao:.2f} s ({max_workers} safe workers)",
-        f"- **{t('total_encontrados', cfg)}:** {total}",
-        f"- **{t('vol_original', cfg)}:** {stats['tamanho_formatado']} (~{tokens_estimados:,} tokens)",
-        f"- **{t('indexados_sucesso', cfg)}:** {len(resultados_processados)}",
-        f"- **{t('recup_cache', cfg)}:** {cont_cache}",
-        f"- **{t('docs_ocr_aplicado', cfg)}:** {cont_ocr_itens}",
-        f"  - OCR Sucesso (Score >= 0.50): {total_ocr_diag['ok']}",
-        f"  - Imagens Sem Texto Legível: {total_ocr_diag['empty']}",
-        f"  - Falhas Técnicas de OCR: {total_ocr_diag['error']}",
-        f"- **{t('docs_identicos', cfg)}:** {len(duplicados)}",
-        f"- **{t('falhas_leitura', cfg)}:** {len(erros)}",
-        f"- **Filtro PII / LGPD:** {'ATIVADO' if cfg.get('mascarar_pii', False) else 'DESATIVADO'}\n",
-        f"## {t('estrutura_saida', cfg)}:",
-    ]
-    for ag in arquivos_gerados:
-        relatorio.append(f"- `{ag}`")
+    total_mojibake = sum(m.get("mojibake_repairs", 0) for _, _, _, _, m in resultados_processados)
 
-    if aviso_contexto:
-        relatorio.append(aviso_contexto)
+    def construir_relatorio(idioma: str) -> str:
+        c_dict = dict(cfg)
+        c_dict["idioma"] = idioma
+        d_tit = t("relatorio_auditoria_titulo", c_dict)
+        dt_lbl = "Date/Time" if idioma == "en" else "Data/Hora"
+        tok_lbl = f"(~{tokens_estimados:,} estimated heuristic tokens)" if idioma == "en" else f"(~{tokens_estimados:,} tokens estimados via heurística)"
+        workers_lbl = f"{max_workers} safe workers" if idioma == "en" else f"{max_workers} processos seguros"
+        pii_lbl = ("ENABLED (CPF/CNPJ/Email/Phone masked)" if cfg.get("mascarar_pii", True) else "DISABLED") if idioma == "en" else ("ATIVADO (CPF/CNPJ/E-mail/Tel mascarados)" if cfg.get("mascarar_pii", True) else "DESATIVADO")
+        mojibake_lbl = f"- **Corrupted encoding fixes (Mojibake auto-repair):** {total_mojibake} occurrences corrected" if idioma == "en" else f"- **Correções de codificação corrompida (Mojibake reparado):** {total_mojibake} ocorrências corrigidas"
 
-    if duplicados:
-        relatorio.append(f"\n## {t('docs_identicos_detectados', cfg)}:")
-        relatorio.extend(duplicados)
+        linhas_rel = [
+            d_tit,
+            f"- **{dt_lbl}:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}",
+            f"- **{t('tempo_total', c_dict)}:** {duracao:.2f} s ({workers_lbl})",
+            f"- **{t('total_encontrados', c_dict)}:** {total}",
+            f"- **{t('vol_original', c_dict)}:** {stats['tamanho_formatado']} {tok_lbl}",
+            f"- **{t('indexados_sucesso', c_dict)}:** {len(resultados_processados)}",
+            f"- **{t('recup_cache', c_dict)}:** {cont_cache}",
+            f"- **{t('docs_ocr_aplicado', c_dict)}:** {cont_ocr_itens}",
+            f"  - {'OCR Success' if idioma == 'en' else 'OCR Sucesso'} (Score >= {cfg.get('limiar_confianca_ocr', 0.50):.2f}): {total_ocr_diag['ok']}",
+            f"  - {'Images Without Readable Text' if idioma == 'en' else 'Imagens Sem Texto Legível'}: {total_ocr_diag['empty']}",
+            f"  - {'OCR Technical Failures' if idioma == 'en' else 'Falhas Técnicas de OCR'}: {total_ocr_diag['error']}",
+            mojibake_lbl,
+            f"- **{t('docs_identicos', c_dict)}:** {len(duplicados)}",
+            f"- **{t('falhas_leitura', c_dict)}:** {len(erros)}",
+            f"- **{'PII Redaction / Privacy' if idioma == 'en' else 'Filtro PII / LGPD'}:** {pii_lbl}\n",
+            f"## {t('estrutura_saida', c_dict)}:",
+        ]
+        for ag in arquivos_gerados:
+            linhas_rel.append(f"- `{ag}`")
 
-    if erros:
-        relatorio.append(f"\n## {t('falhas_extracao', cfg)}:")
-        relatorio.extend(erros)
+        if tokens_estimados > 128_000:
+            if idioma == "en":
+                linhas_rel.append(
+                    f"\n> ⚠️ **Context Window Advisory:** The corpus totals ~{tokens_estimados:,} estimated heuristic tokens. "
+                    f"For Microsoft 365 Copilot queries, prefer attaching split parts (`corpus_parte_*.md`) or departmental files (`por_pasta/`) "
+                    f"to prevent model context window saturation."
+                )
+            else:
+                linhas_rel.append(
+                    f"\n> ⚠️ **Aviso de Janela de Contexto:** O corpus totaliza ~{tokens_estimados:,} tokens estimados via heurística. "
+                    f"Para consultas no Microsoft 365 Copilot, prefira anexar partes fatiadas (`corpus_parte_*.md`) ou os consolidados por departamento (`por_pasta/`) "
+                    f"para evitar saturação da janela do modelo."
+                )
 
-    texto_relatorio = "\n".join(relatorio)
-    (pasta_destino / "relatorio_auditoria.md").write_text(texto_relatorio, encoding="utf-8")
-    (pasta_destino / "audit_report.md").write_text(texto_relatorio, encoding="utf-8")
+        qd_list = quase_duplicados_en if idioma == "en" else quase_duplicados_pt
+        if qd_list:
+            tit_qd = "Near-Duplicate Documents Detected (High Textual Overlap)" if idioma == "en" else "Documentos Quase-Duplicados Detectados (Alta Sobreposição Textual)"
+            linhas_rel.append(f"\n## {tit_qd}:")
+            linhas_rel.extend(qd_list)
+
+        if duplicados:
+            linhas_rel.append(f"\n## {t('docs_identicos_detectados', c_dict)}:")
+            linhas_rel.extend(duplicados)
+
+        if erros:
+            linhas_rel.append(f"\n## {t('falhas_extracao', c_dict)}:")
+            linhas_rel.extend(erros)
+
+        return "\n".join(linhas_rel)
+
+    (pasta_destino / "relatorio_auditoria.md").write_text(construir_relatorio("pt"), encoding="utf-8")
+    (pasta_destino / "audit_report.md").write_text(construir_relatorio("en"), encoding="utf-8")
 
     (pasta_destino / "PROMPT_PARA_COPILOT.txt").write_text(PROMPT_SISTEMA_COPILOT_PT, encoding="utf-8")
     (pasta_destino / "COPILOT_PROMPT.txt").write_text(PROMPT_SISTEMA_COPILOT_EN, encoding="utf-8")
@@ -1790,7 +1981,11 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
     print(f"{Cor.VERDE}============================================================================{Cor.RESET}")
     print(f"{t('pasta_execucao', cfg):<22}: {Cor.NEGRITO}{pasta_destino}{Cor.RESET}")
     print(f"{t('sucesso_total', cfg):<22}: {len(resultados_processados)} / {total} (Cache: {cont_cache} | OCR: {cont_ocr_itens})")
-    print(f"{t('volume_proc', cfg):<22}: {stats['tamanho_formatado']} (~{tokens_estimados:,} tokens)")
+    token_heuristica = f"(~{tokens_estimados:,} estimated heuristic tokens)" if lang == "en" else f"(~{tokens_estimados:,} tokens estimados via heurística)"
+    print(f"{t('volume_proc', cfg):<22}: {stats['tamanho_formatado']} {token_heuristica}")
+    if total_mojibake > 0:
+        mojibake_term = f"Mojibake repaired     : {total_mojibake} occurrences" if lang == "en" else f"Mojibake corrigido    : {total_mojibake} ocorrências"
+        print(f"{mojibake_term}")
 
     print(f"\n{t('disponiveis_copilot', cfg)}")
     for ag in arquivos_gerados:
@@ -2192,6 +2387,8 @@ if __name__ == "__main__":
         cfg_auto = carregar_config()
         if "--redact-pii" in sys.argv:
             cfg_auto["mascarar_pii"] = True
+        elif "--no-pii" in sys.argv:
+            cfg_auto["mascarar_pii"] = False
         if "--workers" in sys.argv:
             try:
                 w_idx = sys.argv.index("--workers")

@@ -15,7 +15,7 @@ import app
 
 
 class TestOfflinePipelineV5(unittest.TestCase):
-    """Testes de conformidade e integridade da versão 5.0."""
+    """Testes de conformidade, qualidade textual e integridade da versão 5.0."""
 
     def test_zero_network_imports_in_app(self):
         """Garante que app.py não importa nenhuma biblioteca que faça chamadas de rede."""
@@ -29,6 +29,33 @@ class TestOfflinePipelineV5(unittest.TestCase):
         for lib in proibidos:
             self.assertNotIn(f"import {lib}", code, f"Biblioteca de rede '{lib}' não é permitida.")
             self.assertNotIn(f"from {lib}", code, f"Biblioteca de rede '{lib}' não é permitida.")
+
+    def test_mojibake_repair(self):
+        """Valida que textos com dupla codificação CP1252/UTF-8 são restaurados com acentuação correta."""
+        corrompido = (
+            "ObservaÃ§Ã£o: Cloudflare Proxy pode retornar IPs da borda, nÃ£o do origin. "
+            "MÃ©todo: GET somente leitura. ComunicaÃ§Ã£o efetuada."
+        )
+        reparado, qtd = app.reparar_mojibake(corrompido)
+        self.assertGreater(qtd, 0)
+        self.assertIn("Observação", reparado)
+        self.assertIn("não", reparado)
+        self.assertIn("Método", reparado)
+        self.assertIn("Comunicação", reparado)
+        self.assertNotIn("Ã§", reparado)
+        self.assertNotIn("Ã£", reparado)
+
+    def test_ocr_spurious_space_debreaking(self):
+        """Valida a recombinação fonotática de palavras quebradas por segmentação OCR."""
+        amostra_ocr = (
+            "Aute nticacao efetuada com comprovra nte de pagamento. "
+            "Verifique o docu mento e o estabeleci mento."
+        )
+        corrigido, qtd = app.corrigir_espacos_ocr(amostra_ocr)
+        self.assertGreater(qtd, 0)
+        self.assertIn("Autenticacao", corrigido)
+        self.assertIn("documento", corrigido)
+        self.assertIn("estabelecimento", corrigido)
 
     def test_pii_redaction(self):
         """Testa a redação e mascaramento de dados sensíveis (LGPD / Compliance)."""
