@@ -1,6 +1,5 @@
 @echo off
 chcp 65001 >nul
-setlocal EnableDelayedExpansion
 title Consolidador Local de Documentos para Microsoft Copilot (Windows 11)
 
 cd /d "%~dp0"
@@ -15,7 +14,7 @@ if %ERRORLEVEL% EQU 0 (
     set PYTHON_CMD=python
 ) else (
     where py >nul 2>nul
-    if !ERRORLEVEL! EQU 0 (
+    if %ERRORLEVEL% EQU 0 (
         set PYTHON_CMD=py -3
     )
 )
@@ -26,6 +25,7 @@ if "%PYTHON_CMD%"=="" (
     echo Instale o Python 3.10+ em https://www.python.org/downloads/
     echo IMPORTANTE: Marque a caixa "Add Python to PATH" no instalador.
     echo ============================================================================
+    pause
     exit /b 1
 )
 
@@ -34,6 +34,7 @@ if not exist ".venv\Scripts\python.exe" (
     %PYTHON_CMD% -m venv .venv
     if %ERRORLEVEL% NEQ 0 (
         echo [ERRO] Falha ao criar o ambiente virtual .venv
+        pause
         exit /b 1
     )
 )
@@ -49,3 +50,8 @@ if %ERRORLEVEL% EQU 0 (
 
 :run_app
 ".venv\Scripts\python.exe" app.py --lang pt %*
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [ERRO] O processo finalizou com codigo de erro %ERRORLEVEL%.
+    pause
+)

@@ -445,11 +445,14 @@ def obter_ocr_worker():
 
 def limpar_tela():
     if "--auto" not in sys.argv:
-        try:
-            sys.stdout.write("\033[2J\033[H")
-            sys.stdout.flush()
-        except Exception:
-            os.system("cls" if platform.system() == "Windows" else "clear")
+        if platform.system() == "Windows":
+            os.system("cls")
+        else:
+            try:
+                sys.stdout.write("\033[2J\033[H")
+                sys.stdout.flush()
+            except Exception:
+                os.system("clear")
 
 
 def resolver_caminho(p_str: str) -> Path:
@@ -2088,9 +2091,15 @@ def carregar_config() -> dict:
             print(f"{Cor.AMARELO}[NOTICE] Error loading config.json ({e}). Loaded defaults.{Cor.RESET}")
 
     pastas_txt = ler_pastas_txt()
-    for p in pastas_txt:
-        if p not in cfg["pastas_entrada"]:
-            cfg["pastas_entrada"].append(p)
+    # Normaliza caminhos e elimina duplicatas de caminhos relativos/absolutos
+    pastas_normalizadas = []
+    vistos = set()
+    for p in cfg.get("pastas_entrada", []) + pastas_txt:
+        p_res = str(resolver_caminho(p))
+        if p_res not in vistos:
+            vistos.add(p_res)
+            pastas_normalizadas.append(p_res)
+    cfg["pastas_entrada"] = pastas_normalizadas
 
     return cfg
 
