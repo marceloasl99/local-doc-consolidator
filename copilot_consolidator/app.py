@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Consolidador Local de Documentos para Microsoft Copilot & RAG (v5.0 - Enterprise Edition)
-Local Document Consolidator for Microsoft Copilot & RAG (v5.0 - Enterprise Edition)
-Bilingual: English (start.bat) & Português (iniciar_windows.bat)
+Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.0 - Enterprise Edition)
+Local Document Consolidator for Microsoft Copilot & RAG (v6.0 - Enterprise Edition)
+Bilingual: English (start.bat / run.bat) & Português (iniciar_windows.bat)
 100% Offline | Multicore Concurrency Control | Context-Aware Office Extraction
 """
 
@@ -85,7 +85,7 @@ PROMPT_SISTEMA_COPILOT_EN = (
 
 I18N = {
     "pt": {
-        "titulo_app": "CONSOLIDADOR LOCAL DE DOCUMENTOS PARA MICROSOFT COPILOT (v5.0)",
+        "titulo_app": "CONSOLIDADOR LOCAL DE DOCUMENTOS PARA MICROSOFT COPILOT (v6.0)",
         "subtitulo_app": "Ambiente: Windows 11 | 100% Offline | {workers} Processos Concorrentes Seguros",
         "status_atual": "Status Atual:",
         "pastas_monitoradas": "Pastas monitoradas",
@@ -113,7 +113,7 @@ I18N = {
         "prompt_opcao": "Digite o número da opção desejada: ",
         "sem_pastas": "[!] Nenhuma pasta configurada! Adicione pastas na opção [2] ou no arquivo pastas.txt.",
         "sem_arquivos": "[!] Nenhum arquivo compatível foi encontrado nas pastas informadas.",
-        "iniciando_conversao": "INICIANDO CONVERSÃO LOCAL PARA MICROSOFT COPILOT (v5.0)",
+        "iniciando_conversao": "INICIANDO CONVERSÃO LOCAL PARA MICROSOFT COPILOT (v6.0)",
         "processando_paralelo": "Processando documentos com concorrência segura...",
         "gerando_zip": "Gerando arquivo compactado .ZIP e verificando integridade...",
         "concluido_sucesso": "CONSOLIDAÇÃO CONCLUÍDA COM SUCESSO EM {tempo:.2f}s!",
@@ -159,7 +159,7 @@ I18N = {
         "falhas_extracao": "Falhas de Extração",
     },
     "en": {
-        "titulo_app": "LOCAL DOCUMENT CONSOLIDATOR FOR MICROSOFT COPILOT (v5.0)",
+        "titulo_app": "LOCAL DOCUMENT CONSOLIDATOR FOR MICROSOFT COPILOT (v6.0)",
         "subtitulo_app": "Environment: Windows 11 | 100% Offline | {workers} Safe Concurrent Workers",
         "status_atual": "Current Status:",
         "pastas_monitoradas": "Monitored folders",
@@ -187,7 +187,7 @@ I18N = {
         "prompt_opcao": "Enter desired option: ",
         "sem_pastas": "[!] No folder configured! Add folders in option [2] or in pastas.txt.",
         "sem_arquivos": "[!] No compatible files found in configured folders.",
-        "iniciando_conversao": "STARTING LOCAL CONSOLIDATION FOR MICROSOFT COPILOT (v5.0)",
+        "iniciando_conversao": "STARTING LOCAL CONSOLIDATION FOR MICROSOFT COPILOT (v6.0)",
         "processando_paralelo": "Processing documents with safe concurrency...",
         "gerando_zip": "Creating .ZIP archive and verifying integrity...",
         "concluido_sucesso": "CONSOLIDATION COMPLETED SUCCESSFULLY IN {tempo:.2f}s!",
@@ -1464,7 +1464,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True):
         while True:
             limpar_tela()
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}")
-            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING (v5.1)" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL (v5.1)"
+            titulo_conf = "CONFIRMATION OF LOCAL PROCESSING (v6.0)" if lang == "en" else "CONFIRMAÇÃO DO PROCESSAMENTO LOCAL (v6.0)"
             print(f"{Cor.TITULO}   {titulo_conf}{Cor.RESET}")
             print(f"{Cor.TITULO}============================================================================{Cor.RESET}\n")
 
@@ -2232,7 +2232,7 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
     while True:
         limpar_tela()
         lang = obter_idioma(cfg)
-        print(f"{Cor.TITULO}=== SETTINGS (v5.1) - OUTPUT, OCR, PRIVACY & CONCURRENCY ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÕES (v5.1) - SAÍDAS, OCR, LGPD E CONCORRÊNCIA ==={Cor.RESET}\n")
+        print(f"{Cor.TITULO}=== SETTINGS (v6.0) - OUTPUT, OCR, PRIVACY & CONCURRENCY ==={Cor.RESET}\n" if lang == "en" else f"{Cor.TITULO}=== CONFIGURAÇÕES (v6.0) - SAÍDAS, OCR, LGPD E CONCORRÊNCIA ==={Cor.RESET}\n")
 
         num_cpus = os.cpu_count() or 4
         workers_atual = int(cfg.get("max_workers", min(4, num_cpus)))
@@ -2463,7 +2463,7 @@ def menu_principal():
 if __name__ == "__main__":
     if "--help" in sys.argv or "-h" in sys.argv:
         print("""
-Local Document Consolidator for Microsoft Copilot (v5.1)
+Local Document Consolidator for Microsoft Copilot (v6.0)
 Windows 11 | 100% Offline | Multicore Parallel & Local RapidOCR
 
 Usage:

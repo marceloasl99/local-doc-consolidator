@@ -1,6 +1,7 @@
 @echo off
+setlocal
 chcp 65001 >nul
-title Consolidador Local de Documentos para Microsoft Copilot (Windows 11)
+title Consolidador Local de Documentos para Microsoft Copilot (Windows 11) v6.0
 
 cd /d "%~dp0"
 
@@ -32,7 +33,7 @@ if "%PYTHON_CMD%"=="" (
 if not exist ".venv\Scripts\python.exe" (
     echo [1/2] Criando ambiente virtual local venv...
     %PYTHON_CMD% -m venv .venv
-    if %ERRORLEVEL% NEQ 0 (
+    if errorlevel 1 (
         echo [ERRO] Falha ao criar o ambiente virtual .venv
         pause
         exit /b 1
@@ -50,7 +51,7 @@ if %ERRORLEVEL% EQU 0 (
 
 :run_app
 ".venv\Scripts\python.exe" app.py --lang pt %*
-if %ERRORLEVEL% NEQ 0 (
+if errorlevel 1 (
     echo.
     echo [ERRO] O processo finalizou com codigo de erro %ERRORLEVEL%.
     pause

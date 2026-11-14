@@ -1,4 +1,4 @@
-# Consolidador Local de Documentos para Microsoft Copilot & RAG 🚀📁
+# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.0 🚀📁
 
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
@@ -14,7 +14,7 @@ Processe **centenas a milhares de arquivos** espalhados em pastas departamentais
 
 ---
 
-## 🌟 Principais Recursos (v5.1)
+## 🌟 Principais Recursos (v6.0)
 
 1. **🧠 OCR Local Profundo com RapidOCR (ONNX Runtime):**
    - Transcreve páginas escaneadas e imagens embutidas em Word, Excel, PowerPoint e PDFs.

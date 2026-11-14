@@ -1,4 +1,4 @@
-# local-doc-consolidator - Copilot & RAG Document Consolidator 🚀📁
+# local-doc-consolidator - Copilot & RAG Document Consolidator v6.0 🚀📁
 
 [![Platform: Windows 11 & macOS](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacy: 100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success.svg)](.)
@@ -18,7 +18,7 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ---
 
-## 🌟 Key Features (v5.1)
+## 🌟 Key Features (v6.0)
 
 * **🧠 Deep Offline OCR (RapidOCR + ONNX Runtime):**
   * **Scanned & Hybrid PDFs:** Reads native digital text and automatically executes OCR on fully scanned pages or embedded images within mixed pages.
@@ -51,15 +51,16 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 ## 🛠️ Quick Start
 
 ### English Interface (Windows)
+* **Command Prompt (CMD - Type directly):**
+  ```cmd
+  run.bat
+  :: or
+  start.bat
+  ```
 * **PowerShell / Windows Terminal (Current Window):**
   ```powershell
   .\start.ps1
   ```
-* **Command Prompt / Windows Explorer:**
-  ```cmd
-  start.bat
-  ```
-  *(Runs natively in the active console window with 100% English menus, options, and status lines).*
 
 ### Portuguese Interface (Windows)
 * **PowerShell / Windows Terminal (Mesma Janela):**

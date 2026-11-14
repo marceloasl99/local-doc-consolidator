@@ -1,4 +1,4 @@
-# local-doc-consolidator - Copilot & RAG Document Consolidator 🚀📁
+# local-doc-consolidator - Copilot & RAG Document Consolidator v6.0 🚀📁
 
 [![Platform: Windows 11 & macOS](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacy: 100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success.svg)](.)
@@ -18,7 +18,7 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ---
 
-## 🌟 Key Features (v5.1)
+## 🌟 Key Features (v6.0)
 
 * **🧠 Deep Offline OCR (RapidOCR + ONNX Runtime):**
   * **Scanned & Hybrid PDFs:** Reads native digital text and automatically executes OCR on fully scanned pages or embedded images within mixed pages.
@@ -49,13 +49,27 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 
 ## 🛠️ Quick Start
 
-### English Launcher (Windows)
-Double-click **`start.bat`** (in root or in `copilot_consolidator/`).  
-On first run, it automatically creates a virtual environment (`.venv`), installs local libraries, and launches the English menu.
+### English Interface (Windows)
+* **Command Prompt (CMD - Type directly):**
+  ```cmd
+  run.bat
+  :: or
+  start.bat
+  ```
+* **PowerShell / Windows Terminal (Current Window):**
+  ```powershell
+  .\start.ps1
+  ```
 
-### Portuguese Launcher (Windows)
-Double-click **`iniciar_windows.bat`** (in root or in `copilot_consolidator/`).  
-Launches the Brazilian Portuguese interface.
+### Portuguese Interface (Windows)
+* **Prompt de Comando / Windows Explorer:**
+  ```cmd
+  iniciar_windows.bat
+  ```
+* **PowerShell / Windows Terminal:**
+  ```powershell
+  .\iniciar.ps1
+  ```
 
 ### macOS Launcher
 - English: `./copilot_consolidator/start_macos.command`

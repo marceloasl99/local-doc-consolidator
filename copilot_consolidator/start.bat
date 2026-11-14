@@ -1,6 +1,7 @@
 @echo off
+setlocal
 chcp 65001 >nul
-title Local Document Consolidator for Microsoft Copilot (Windows 11)
+title Local Document Consolidator for Microsoft Copilot (Windows 11) v6.0
 
 cd /d "%~dp0"
 
@@ -32,7 +33,7 @@ if "%PYTHON_CMD%"=="" (
 if not exist ".venv\Scripts\python.exe" (
     echo [1/2] Creating local virtual environment (.venv)...
     %PYTHON_CMD% -m venv .venv
-    if %ERRORLEVEL% NEQ 0 (
+    if errorlevel 1 (
         echo [ERROR] Failed to create .venv virtual environment
         pause
         exit /b 1
@@ -50,8 +51,8 @@ if %ERRORLEVEL% EQU 0 (
 
 :run_app
 ".venv\Scripts\python.exe" app.py --lang en %*
-if %ERRORLEVEL% NEQ 0 (
+if errorlevel 1 (
     echo.
-    echo [ERROR] Process finished with error code %ERRORLEVEL%.
+    echo [ERROR] Process finished with exit code %ERRORLEVEL%.
     pause
 )

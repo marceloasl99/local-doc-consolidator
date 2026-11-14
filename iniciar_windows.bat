@@ -1,12 +1,13 @@
 @echo off
+setlocal
 chcp 65001 >nul
-title Consolidador Local de Documentos para Microsoft Copilot (Windows 11)
+title Consolidador Local de Documentos para Microsoft Copilot (Windows 11) v6.0
 
 cd /d "%~dp0copilot_consolidator"
 
 if exist ".venv\Scripts\python.exe" (
     ".venv\Scripts\python.exe" app.py --lang pt %*
-    if %ERRORLEVEL% NEQ 0 (
+    if errorlevel 1 (
         echo.
         echo [ERRO] O processo finalizou com codigo de erro %ERRORLEVEL%.
         pause
