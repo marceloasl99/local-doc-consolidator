@@ -1,18 +1,19 @@
-# local-doc-consolidator - Copilot Document Consolidator 🚀📁
+# local-doc-consolidator - Copilot & RAG Document Consolidator 🚀📁
 
-[![Platform: Windows 11](https://img.shields.io/badge/Platform-Windows%2011-lightgrey.svg)](.)
+[![Platform: Windows 11 & macOS](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacy: 100% Offline](https://img.shields.io/badge/Privacy-100%25%20Offline-success.svg)](.)
 [![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local%20%26%20Deep-brightgreen.svg)](.)
 [![Performance: Multicore Parallel](https://img.shields.io/badge/Performance-Multicore%20Parallel-orange.svg)](.)
+[![Export: Markdown + JSONL RAG](https://img.shields.io/badge/Export-Markdown%20%2B%20JSONL%20RAG-purple.svg)](.)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-An enterprise-grade, **100% local, offline, and secure** Python tool to index, convert, and consolidate massive volumes of confidential documents (PDFs, Word documents with embedded images, Excel sheets with embedded images, PowerPoint slides, and standalone scanned images) into structured Markdown ready for **Microsoft 365 Copilot**.
+An enterprise-grade, **100% local, offline, and secure** tool to index, convert, and consolidate massive volumes of confidential documents (PDFs, Word documents with embedded images, Excel sheets with embedded images, PowerPoint slides, and standalone scanned images) into clean, continuous Markdown optimized for **Microsoft 365 Copilot** and structured JSONL for **local RAG pipelines (Chroma, Qdrant, LangChain)**.
 
-Process **hundreds to thousands of files** across multiple departmental folders with zero data leakage to external cloud services and without requiring Administrator privileges on Windows (no heavy external system dependencies like Poppler or Tesseract).
+Process **hundreds to thousands of files** across multiple departmental folders with zero data leakage to external cloud services and without requiring Administrator privileges on Windows or macOS (no external system dependencies like Poppler or Tesseract).
 
 ---
 
-> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, [role para a seção abaixo](#-versão-em-português-do-brasil).*
+> 🇧🇷 *Para a versão deste documento em **Português do Brasil**, [role para a seção abaixo](#-versão-em-português-do-brasil) ou abra [LEIAME.md](copilot_consolidator/LEIAME.md).*
 
 ---
 
@@ -21,44 +22,60 @@ Process **hundreds to thousands of files** across multiple departmental folders 
 * **🧠 Deep Offline OCR (RapidOCR + ONNX Runtime):**
   * **Scanned & Hybrid PDFs:** Reads native digital text and automatically executes OCR on fully scanned pages or embedded images within mixed pages.
   * **Word (`.docx`) with Images:** Automatically extracts embedded screenshots, invoices, or signed slips (`word/media/`) and transcribes them via OCR.
-  * **Excel (`.xlsx`) with Images:** Detects and transcribes receipts, tables, and images pasted into spreadsheet sheets (`xl/media/`).
+  * **Excel (`.xlsx` & `.xls`) with Images:** Detects and transcribes receipts, tables, and images pasted into spreadsheet sheets (`xl/media/`).
   * **PowerPoint (`.pptx`) with Images:** Transcribes diagrams and charts embedded across presentation slides.
   * **Standalone Images (`.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`):** Directly parses receipts and document photos into Markdown with resolution metadata.
-* **📦 Flexible Markdown Splitting & Packaging:**
-  * **Master Single File (`corpus_completo.md`):** Complete consolidated knowledge base with Master Index IDs `[001]` to `[N]`.
-  * **Auto-Chunking by Size (MB):** Automatically split output when reaching **X MB** (customizable: 8 MB, 50 MB, 100 MB, up to **200 MB**).
+* **🛡️ Smart Filtering & Noise Reduction:**
+  * **OCR Confidence Filter (`score >= 0.50`):** Discards low-confidence OCR artifacts and noise.
+  * **Image Hash Deduplication:** Computes SHA-256 on original raw image bytes. If a company logo or header repeats on 100 pages, OCR runs only once.
+  * **Safe Aspect Ratio Filter (`> 20:1`):** Ignores divider lines and rules without dropping wide flowcharts, timelines, or financial tables.
+  * **Text Normalization:** Reconstructs hyphenated line-endings (`develop-` \n `ment` -> `development`) and un-breaks hard line wraps.
+* **📦 Flexible Markdown Splitting & RAG Export:**
+  * **Continuous Clean Markdown (`corpus_completo.md`):** Fluid, uninterrupted text without intrusive middle-of-page split markers.
+  * **Structured Vector RAG Dataset (`corpus_rag.jsonl`):** Dual export retaining exact page numbers, metadata, and relative paths for vector search engines.
+  * **Auto-Chunking by Size (MB):** Automatically splits output when reaching **X MB** (customizable: 8 MB, 50 MB, 100 MB, up to **200 MB**).
   * **Batching by Document Count:** Group files into batches of *N* documents (e.g., 25, 50, or 100 docs per file).
   * **1:1 Individual Markdown:** Mirror documents individually into `saida_copilot/individual/`.
   * **Per-Department Folder:** Consolidated `.md` files for each monitored source folder in `saida_copilot/por_pasta/`.
-* **📅 Timestamped Runs & Automatic .ZIP Archiving:**
-  * Every execution writes to a dedicated timestamped directory (e.g., `processado_YYYYMMDD_HHMMSS/`).
-  * Automatically creates an optimized `.zip` archive ready for upload.
+* **📅 Timestamped Runs & Automatic Verified .ZIP Archiving:**
+  * Every execution writes to a dedicated timestamped directory (`processado_YYYYMMDD_HHMMSS/`).
+  * Automatically creates an optimized `.zip` archive verified with `zipfile.testzip()`.
   * Maintains a `ultimo_processamento/` shortcut folder for immediate access to the latest run.
 * **⚡ Multicore Parallel Processing (CPU):**
   * Leverages all available CPU cores using `concurrent.futures.ProcessPoolExecutor` for high-throughput batch conversion.
-* **🔄 Incremental SHA-256 Cryptographic Cache:**
-  * Re-converts only newly added or modified documents on subsequent runs, generating full outputs in sub-second time.
-* **🤖 Anti-Hallucination Prompt Template:**
-  * Auto-generates `PROMPT_PARA_COPILOT.txt` to enforce strict source citations (`[001]`, `[002]`) in Copilot responses.
+* **🔄 Deterministic SHA-256 Parametric Cache:**
+  * Caches OCR results factoring in DPI resolution, minimum dimensions, and confidence scores. Subsequent runs complete in seconds.
+* **🤖 Dual Anti-Hallucination Prompt Templates:**
+  * Generates both `COPILOT_PROMPT.txt` (English) and `PROMPT_PARA_COPILOT.txt` (Portuguese) enforcing strict source citations (`[001]`, `[002]`).
 
 ---
 
-## 🛠️ Installation & Quick Start (Windows 11)
+## 🛠️ Quick Start
 
-### Option 1: Double-Click Launcher (Recommended)
-1. Double-click **`iniciar_windows.bat`**.
-2. On first run, it automatically creates a sandboxed virtual environment (`.venv`), installs all local dependencies, and opens the interactive terminal menu.
+### English Launcher (Windows)
+Double-click **`start.bat`** (in root or in `copilot_consolidator/`).  
+On first run, it automatically creates a virtual environment (`.venv`), installs local libraries, and launches the English menu.
 
-### Option 2: Command Line (PowerShell / CMD)
+### Portuguese Launcher (Windows)
+Double-click **`iniciar_windows.bat`** (in root or in `copilot_consolidator/`).  
+Launches the Brazilian Portuguese interface.
+
+### macOS Launcher
+- English: `./copilot_consolidator/start_macos.command`
+- Portuguese: `./copilot_consolidator/iniciar_macos.command`
+
+### Command Line (Headless / Automated)
 ```powershell
-cd copilot_consolidator
-iniciar_windows.bat
+# English execution
+python copilot_consolidator/app.py --auto --lang en
+
+# Portuguese execution
+python copilot_consolidator/app.py --auto --lang pt
 ```
-*(For headless/automated execution, run `python app.py --auto`).*
 
 ---
 
-## 🖥️ Interactive Terminal Menu
+## 🖥️ Interactive Terminal Menu (English)
 
 ```text
 ============================================================================
@@ -66,103 +83,85 @@ iniciar_windows.bat
    Environment: Windows 11 | 100% Offline | 12 Concurrent CPU Cores
 ============================================================================
  Current Status:
-  • Monitored Folders       : 3
-  • Files Located           : 10 (488.1 KB)
-  • Multicore Parallel      : ENABLED (12 cores)
-  • OCR on PDFs & Images    : ENABLED
-  • OCR Embedded Images     : ENABLED (Word/Excel/PPTX)
-  • Output Splitting        : Single | Limit 8.0MB | Per Folder
-  • Timestamp & Packaging   : Timestamped Folder + Zip Compression
-  • Output Directory        : ./saida_copilot
+  • Monitored folders        : 3
+  • Located files            : 15 (8.62 MB)
+  • Multicore Parallel       : ENABLED (12 cores)
+  • OCR in PDFs and Images   : ENABLED
+  • OCR Embedded Images      : ENABLED (Word/Excel/PPTX)
+  • File Splitting           : Single | 8.0MB | Folder | RAG JSONL
+  • Organization / Timestamp : Timestamped Folder + Compress .ZIP
+  • Base destination         : ./saida_copilot
 ----------------------------------------------------------------------------
- [1] RUN CONVERSION AND GENERATE FILES FOR COPILOT
- [2] Add folders (Windows Explorer picker, type paths, or Parent Folder)
- [3] List / Check / Remove configured folders
+ [1] EXECUTE CONSOLIDATION AND GENERATE COPILOT FILES
+ [2] Add folders (Windows Explorer, type path, or Parent Folder)
+ [3] List / Check / Remove configured folders (3)
  [4] Reload folder list from 'pastas.txt'
- [5] Configure output options (Sizes/MB, Batches, ZIP, Timestamp, OCR)
- [6] Clear SHA-256 extraction cache (force fresh re-read)
+ [5] Configure output options (Sizes/MB, Batches, ZIP, Timestamp, OCR, RAG JSONL)
+ [6] Clear SHA-256 extraction cache (force full re-extraction)
+ [L] Language / Idioma (Current: English)
  [0] Exit
 ============================================================================
 ```
 
 ---
 
-## 🤖 How to Query with Microsoft 365 Copilot
+## 📁 Supported Formats
 
-1. Open **Microsoft 365 Copilot Chat** or **Copilot Notebooks**.
-2. Attach the generated `corpus_completo.md` (or the split parts from `saida_copilot/ultimo_processamento/`).
-3. Paste the system prompt from `PROMPT_PARA_COPILOT.txt`:
-
-```text
-Analyze the attached consolidated documentation. All documents are cataloged in the MASTER DOCUMENT INDEX at the top with unique identifiers in brackets, such as [001], [002], etc.
-
-Mandatory rules for your responses:
-1. For every piece of information, number, or rule cited, you must cite the document ID and original relative path (e.g., 'According to [001] 01_Finance/Report_2026.pdf...').
-2. If there are conflicting rules or figures between documents, identify both IDs and highlight the discrepancy clearly.
-3. Do not extrapolate or fabricate data not present in the attached file; if something is not mentioned, state it explicitly.
-```
+| Category | File Extensions | Extraction & Processing Strategy |
+|---|---|---|
+| **PDF** | `.pdf` | Native text & tables + hybrid RapidOCR ONNX on scanned pages and embedded images |
+| **Word** | `.docx` | Native paragraphs, styles, headings, tables + OCR on embedded images (`word/media/`) |
+| **Excel** | `.xlsx`, `.xls` | Sheet-by-sheet Markdown tables + OCR on embedded receipts and figures (`xl/media/`) |
+| **PowerPoint**| `.pptx` | Slides, text blocks, speaker notes, tables + OCR on slide diagrams (`ppt/media/`) |
+| **Images** | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | Direct RapidOCR transcription with resolution and confidence metadata |
+| **Text** | `.txt`, `.md`, `.csv` | Encoded with auto-fallback (UTF-8, Latin-1, CP1252) + CSV delimiter sniffing |
 
 ---
 
-## 📋 Supported Formats
+## 📂 Output Folder Structure
 
-| Format | Extension | Capabilities |
-| :--- | :--- | :--- |
-| **PDF** | `.pdf` | Native text & tables + Offline OCR on scanned pages & embedded images |
-| **Word** | `.docx` | Headings, styled paragraphs, Markdown tables + OCR on embedded images |
-| **Excel** | `.xlsx`, `.xls` | Converts all sheets to Markdown tables + OCR on embedded image slips |
-| **PowerPoint**| `.pptx` | Slide outlines, presenter notes, tables + OCR on slide diagrams |
-| **Images** | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp` | Direct OCR extraction with resolution & format metadata |
-| **Text/Data** | `.txt`, `.md`, `.csv` | Automatic encoding detection (UTF-8, Latin-1, CP1252) and CSV delimiter sniffing |
+```text
+saida_copilot/
+  ├── ultimo_processamento/              # Fast-access shortcut to the most recent run
+  └── processado_20261114_125217/        # Timestamped execution run
+        ├── corpus_completo.md           # Master single-file Markdown with [001]..[N] index
+        ├── corpus_parte_01.md           # Chunked parts if MB size limit is enabled
+        ├── corpus_rag.jsonl             # Structured page-level JSONL for RAG vector stores
+        ├── por_pasta/                   # Departmental consolidations
+        │     ├── 01_Financeiro.md
+        │     └── 02_Juridico.md
+        ├── COPILOT_PROMPT.txt           # Anti-hallucination prompt (English)
+        ├── PROMPT_PARA_COPILOT.txt      # Anti-hallucination prompt (Portuguese)
+        ├── audit_report.md              # Technical audit metrics (English)
+        ├── relatorio_auditoria.md       # Technical audit metrics (Portuguese)
+        └── consolidated_20261114_125217.zip  # Integrity-verified .ZIP package
+```
 
 ---
 
 <br>
 
----
-
 # 🇧🇷 Versão em Português do Brasil
 
-## Consolidador Local de Documentos para Microsoft Copilot 🚀📁
+O **local-doc-consolidator** é uma solução corporativa, **100% local, offline e segura** em Python para indexar, converter e consolidar volumes massivos de documentos confidenciais corporativos (PDFs nativos e escaneados, Word com imagens, Excel com comprovantes, apresentações PowerPoint e fotos de documentos) em Markdown contínuo para o **Microsoft 365 Copilot** e base JSONL estruturada para **RAG local (Chroma, Qdrant, Milvus, LangChain)**.
 
-Ferramenta corporativa **100% local, offline e segura** desenvolvida em Python para indexar, converter e consolidar grandes volumes de documentos confidenciais (PDFs com texto e escaneados, Word com imagens, Excel com imagens, apresentações, tabelas e imagens escaneadas) em bases Markdown perfeitamente estruturadas para o **Microsoft 365 Copilot**.
+### Destaques da Versão:
+1. **OCR Local Profundo com RapidOCR + ONNX Runtime:** Sem dependência de serviços em nuvem ou executáveis externos pesados (sem Tesseract, sem Poppler).
+2. **Deduplicação de Imagens por Hash:** Logotipos repetidos em centenas de páginas são processados no OCR apenas uma vez.
+3. **Filtro de Confiança e Proporção Segura:** Descarta ruídos com score < 0.50 e réguas divisórias (> 20:1), mantendo fluxogramas e tabelas analíticas.
+4. **Markdown Limpo e Contínuo:** Sem quebras ou marcadores de página intrusivos no meio do texto, permitindo leitura fluida pelo Copilot.
+5. **Exportação Dual RAG (`corpus_rag.jsonl`):** Preserva a rastreabilidade página a página nos metadados para indexação vetorial.
+6. **Bilingue Completo:** Menus, relatórios de auditoria e prompts gerados em Português e Inglês.
+7. **Empacotamento ZIP com Verificação Automática:** Validação estrita via `zipfile.testzip()`.
 
-Processa centenas a milhares de arquivos espalhados em dezenas de pastas sem enviar nenhum dado para a nuvem e sem exigir privilégios de Administrador no Windows.
-
----
-
-### 🌟 Principais Recursos
-
-* **🧠 OCR Local Profundo (100% Offline - RapidOCR ONNX):**
-  * **PDFs com Imagens / Escaneados:** Lê texto nativo e executa OCR em páginas escaneadas e em imagens de páginas mistas.
-  * **Word (`.docx`) com Imagens:** Extrai prints de sistemas, comprovantes e fotos coladas no Word e aplica OCR.
-  * **Excel (`.xlsx`) com Imagens:** Extrai comprovantes e recibos colados nas abas da planilha e transcreve via OCR.
-  * **PowerPoint (`.pptx`) com Imagens:** Lê gráficos e diagramas presentes nos slides.
-  * **Imagens Avulsas (`.png`, `.jpg`, `.jpeg`, `.tiff`, `.bmp`, `.webp`):** Converte notas e recibos diretamente em Markdown com OCR.
-* **📅 Organização por Timestamp e Pacote .ZIP:**
-  * Cada execução cria uma pasta isolada identificada por data e hora (ex: `processado_YYYYMMDD_HHMMSS/`).
-  * Gera automaticamente um arquivo compactado `.zip` pronto para uso.
-  * Mantém a pasta `ultimo_processamento/` atualizada com os arquivos mais recentes.
-* **📊 Contagem de Arquivos, Volume de Dados e Confirmação Prévia:**
-  * Calcula em tempo real a quantidade de arquivos e o volume de dados em MB/GB.
-  * Tela de confirmação antes de executar com detalhamento por extensão e ajuste rápido de limites de MB.
-* **📁 Navegação e Confirmação de Pastas:**
-  * Janela visual nativa do Windows Explorer para navegar e selecionar pastas.
-  * Valida e exibe a quantidade e tamanho de arquivos encontrados antes de adicionar.
-* **📦 Particionamento Flexível de Markdown:**
-  * Arquivo único (`corpus_completo.md`), divisão por limite de tamanho em MB (até 200 MB), divisão por lotes de quantidade, 1:1 individual e consolidado por pasta departamental.
-* **⚡ Multicore Paralelo e Cache SHA-256:**
-  * Distribui a carga entre todos os núcleos da CPU e só reconverte arquivos novos ou alterados nas execuções seguintes.
+### Como Executar:
+- **Windows (Português):** Dê dois cliques em **`iniciar_windows.bat`**.
+- **Windows (Inglês):** Dê dois cliques em **`start.bat`**.
+- **macOS:** Execute `./copilot_consolidator/iniciar_macos.command` ou `./copilot_consolidator/start_macos.command`.
 
 ---
 
-### 🛠️ Como Executar no Windows 11
+## 📄 License / Licença
 
-1. Dê **duplo clique** em **`iniciar_windows.bat`**.
-2. Na primeira vez, o ambiente virtual isolado (`.venv`) será configurado automaticamente com todas as dependências.
-3. O menu interativo abrirá diretamente no terminal pronto para uso.
-
----
-
-### 📝 Licença
-Distribuído sob a licença **MIT**.
+Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.  
+Copyright (c) 2026 marceloasl99.

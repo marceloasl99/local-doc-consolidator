@@ -21,9 +21,8 @@ fi
 if [ ! -f ".venv/.installed_ok" ]; then
     echo "[2/2] Instalando bibliotecas locais (PDF, Office, OCR offline e Multiprocessing)..."
     ./.venv/bin/python3 -m pip install --upgrade pip
-    ./.venv/bin/python3 -m pip install pymupdf pypdf openpyxl python-docx python-pptx pandas xlrd pillow
-    ./.venv/bin/python3 -m pip install rapidocr-onnxruntime markitdown
+    ./.venv/bin/python3 -m pip install pymupdf pypdf openpyxl python-docx python-pptx pandas xlrd pillow rapidocr-onnxruntime
     touch ".venv/.installed_ok"
 fi
 
-./.venv/bin/python3 app.py
+./.venv/bin/python3 app.py --lang pt "$@"

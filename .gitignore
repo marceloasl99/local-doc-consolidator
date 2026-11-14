@@ -14,14 +14,10 @@ __pycache__/
 */.cache_extracao/
 *.cache_extracao*
 
-# Large generated execution outputs (keep structure clean)
-saida_copilot/processado_*/
-*/saida_copilot/processado_*/
+# Large generated execution outputs (keep repository clean)
+saida_copilot/
+*/saida_copilot/
 *.zip
-saida_copilot/por_lotes/
-*/saida_copilot/por_lotes/
-saida_copilot/individual/
-*/saida_copilot/individual/
 
 # OS generated files
 .DS_Store

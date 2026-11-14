@@ -39,9 +39,9 @@ if %ERRORLEVEL% NEQ 0 (
 :check_packages
 if exist ".venv\.installed_ok" goto run_app
 
-echo [2/2] Instalando bibliotecas locais de PDF, Office e OCR...
+echo [2/2] Instalando bibliotecas locais de PDF, Office e OCR (100%% offline)...
 ".venv\Scripts\python.exe" -m pip install --upgrade pip
-".venv\Scripts\python.exe" -m pip install pymupdf pypdf openpyxl python-docx python-pptx pandas xlrd pillow rapidocr-onnxruntime markitdown
+".venv\Scripts\python.exe" -m pip install pymupdf pypdf openpyxl python-docx python-pptx pandas xlrd pillow rapidocr-onnxruntime
 if %ERRORLEVEL% EQU 0 (
     echo ok > ".venv\.installed_ok"
 ) else (
@@ -49,5 +49,5 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 :run_app
-".venv\Scripts\python.exe" app.py
+".venv\Scripts\python.exe" app.py --lang pt %*
 pause
