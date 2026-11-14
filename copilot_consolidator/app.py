@@ -14,10 +14,15 @@ import platform
 import shutil
 import sys
 import time
+import warnings
 import zipfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+
+# Suprime avisos de bibliotecas e desativa sugestoes de layout do PyMuPDF
+os.environ["PYMUPDF_SUGGEST_LAYOUT_ANALYZER"] = "0"
+warnings.filterwarnings("ignore")
 
 # Habilita cores ANSI no terminal do Windows
 if platform.system() == "Windows":
@@ -282,8 +287,12 @@ def extrair_pdf_hibrido(caminho_pdf: Path, usar_ocr: bool = True, dpi: int = 200
     blocos_paginas = []
 
     try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(caminho_pdf)
+        import pymupdf
+        pymupdf.no_recommend_layout()
+        if hasattr(pymupdf, "TOOLS"):
+            pymupdf.TOOLS.mupdf_display_warnings(False)
+            pymupdf.TOOLS.mupdf_display_errors(False)
+        doc = pymupdf.open(caminho_pdf)
 
         for num_pag, pagina in enumerate(doc, start=1):
             texto_nativo = pagina.get_text("text").strip()
@@ -565,11 +574,15 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
             conteudo = ler_texto_com_fallback(arq)
         else:
             try:
-                from markitdown import MarkItDown
-                res = MarkItDown().convert(str(arq))
-                conteudo = res.text_content if res and res.text_content else ""
+                import pandas as pd
+                abas = pd.read_excel(arq, sheet_name=None)
+                blocos = []
+                for nome, df in abas.items():
+                    linhas = [list(df.columns)] + df.fillna("").astype(str).values.tolist()
+                    blocos.append(f"### Planilha: {nome}\n\n{tabela_para_markdown(linhas)}")
+                conteudo = "\n\n".join(blocos)
             except Exception:
-                conteudo = ""
+                conteudo = ler_texto_com_fallback(arq)
 
         conteudo = conteudo.strip()
         arq_cache.write_text(
