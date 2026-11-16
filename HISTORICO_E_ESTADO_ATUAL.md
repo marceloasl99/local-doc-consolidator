@@ -1,9 +1,9 @@
 # Relatório Histórico Completo & Estado Atual do Projeto
 ## Projeto: Local Document Consolidator (`local-doc-consolidator`)
 **Repositório Oficial:** `marceloasl99/local-doc-consolidator`  
-**Versão Atual:** `v6.2`  
+**Versão Atual:** `v6.3`  
 **Última Atualização:** Novembro de 2026  
-**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 21/21 Passando  
+**Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 30/30 Passando  
 
 ---
 
@@ -31,8 +31,9 @@ flowchart TD
     v51["v5.1: Integridade Textual e Auto-Reparo<br/>• Auto-reparo de Mojibake (CP1252/UTF-8)<br/>• Desfragmentação de palavras do OCR<br/>• Detecção de quase-duplicatas (Jaccard >= 80%)<br/>• Relatórios 100% bilíngues dedicados"]
     v6["v6.0 - v6.1: Resiliência de Console, Qualidade e Multi-Launcher<br/>• Inicializador run.bat (elimina colisão no CMD)<br/>• Shells nativos PowerShell (start.ps1 / iniciar.ps1)<br/>• Preservação de dados brutos por padrão (PII OFF)<br/>• Correção de 8 bugs de extração e menu em 5 opções"]
     v62["v6.2: Detecção, Salvamento e Referenciamento de Diagramas<br/>• Separação de diagramas/esquemas em pasta imagens/<br/>• Ordenação docXXX_pYY_figZZ.png<br/>• Cards de referência e catálogo no 00_INDICE_MESTRE<br/>• Metadados no corpus_rag.jsonl e empacotamento ZIP"]
+    v63["v6.3: Foco em Grandes Volumes em Markdown + Precisão Visual<br/>• OCR em passe único + resíduo visual (texto puro vs. diagrama)<br/>• Ordem visual e filtro anti-falsas tabelas em PDFs<br/>• Cabeçalhos multi-linha, Unicode NFC e ordenação natural<br/>• Anexos .eml, catálogo em partes/pastas e índice escalável"]
 
-    v0 --> v2 --> v4 --> v5 --> v51 --> v6 --> v62
+    v0 --> v2 --> v4 --> v5 --> v51 --> v6 --> v62 --> v63
 ```
 
 ### 2.1 Versões 0.1 a 1.0 — O Protótipo Inicial
@@ -129,7 +130,7 @@ flowchart TD
 
 ---
 
-### 2.8 Versão 6.2 (Atual) — Detecção, Salvamento Físico e Referenciamento de Diagramas e Esquemas Técnicos
+### 2.8 Versão 6.2 — Detecção, Salvamento Físico e Referenciamento de Diagramas e Esquemas Técnicos
 - **Objetivo:** Resolver a limitação estrutural de modelos OCR em diagramas, fluxogramas, esquemas de engenharia e arquiteturas visuais, onde textos soltos perdem relações espaciais e a imagem física é necessária para consulta humana ou multimodal.
 - **Implementações Principais:**
   - **Classificador Heurístico de Imagens:** Distingue páginas escaneadas densas de texto corrido (mantidas no OCR puro) de diagramas, gráficos e esquemas técnicos (baixa/média densidade textual com caixas e setas, ou traços vetoriais contrastantes).
@@ -139,6 +140,17 @@ flowchart TD
   - **Anotações RAG:** Metadados estruturados `"imagens_referenciadas"` incorporados linha a linha no `corpus_rag.jsonl`.
   - **Instruções ao Copilot:** Regra 6 adicionada aos prompts de sistema (`PROMPT_PARA_COPILOT.txt` e `COPILOT_PROMPT.txt`), instruindo a IA a citar o arquivo de imagem exato quando a resposta tratar de arquitetura ou esquemas.
   - **Suíte de Testes Expandida (21/21):** Testes unitários dedicados cobrindo classificação de diagramas, integridade de links, geração de pastas e compatibilidade regressiva.
+
+---
+
+### 2.9 Versão 6.3 (Atual) — Foco em Grandes Volumes em Markdown, Separação por Resíduo Visual e Ordem Visual em PDF
+- **Objetivo:** Entregar Markdown 100% estruturado, limpo e referenciado para análise de grandes acervos no Microsoft Copilot (desativando `.jsonl` e `.zip` por padrão) e garantir precisão absoluta na separação entre imagens de texto puro (transcritas via OCR) e diagramas/figuras não traduzíveis salvos em `imagens/`.
+- **Implementações Principais:**
+  - **OCR em Passe Único + Resíduo Visual Não-Textual:** O motor RapidOCR passa uma única vez por imagem; as caixas de texto são mascaradas para medir apenas o resíduo de bordas gráficas (`_medir_residuo_visual`). Imagens de puro texto viram apenas texto Markdown; diagramas/esquemas vão para `imagens/` preservando a transcrição OCR integral no card (`texto_ocr`) e evitando perda de texto em páginas escaneadas (`pagina_inteira=True`).
+  - **Ordem Visual e Anti-Falsas Tabelas em PDF:** Blocos em PDFs de slides/Canva são ordenados por faixas horizontais (`_ordenar_blocos_visualmente`, evitando inversão de rótulos laterais com os parágrafos), caixas decorativas com células repetidas (`|Col1|Col2|`) são rejeitadas por `_limpar_matriz_tabela_pdf`, linhas divisórias são removidas e cabeçalhos/rodapés multi-linha (até 6 linhas) são limpos.
+  - **Normalização Unicode NFC e Ordenação Natural:** Nomes e textos em NFD passam a NFC (`normalizar_unicode`) e os arquivos recebem IDs em ordem numérica natural (`1_Aula`, `2_Aula`... `10_Aula`).
+  - **Catálogo em Partes/Pastas, Anexos `.eml` e Escalabilidade:** `por_pasta/*.md`, `corpus_parte_XX.md` e `por_lotes/*.md` recebem o catálogo de diagramas filtrado; anexos suportados em `.eml` são extraídos via `_despachar_extrator`; `detectar_quase_duplicados` passa a usar índice invertido de palavras raras (escalando até 20.000 documentos); e `compactar_arquivos` inclui pastas como `imagens/` quando o `.zip` é habilitado.
+  - **Suíte de Testes Expandida (30/30):** 9 novos testes em `TestMelhoriasV63` cobrindo todas as melhorias acima.
 
 ---
 

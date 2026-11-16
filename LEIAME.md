@@ -1,13 +1,13 @@
-# Consolidador Local de Documentos para Microsoft Copilot & RAG v6.2
+# Consolidador Local de Documentos para Microsoft Copilot v6.3
 
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
 [![OCR: RapidOCR ONNX](https://img.shields.io/badge/OCR-Local-brightgreen.svg)](.)
 [![Licença: MIT](https://img.shields.io/badge/Licen%C3%A7a-MIT-blue.svg)](LICENSE)
 
-Ferramenta **100% local e offline** que lê grandes volumes de documentos variados e gera **uma única base Markdown organizada** para o **Microsoft 365 Copilot** usar como fonte das respostas. Cada documento recebe um ID (`[001]`, `[002]`...) para que o Copilot cite exatamente de onde tirou cada informação.
+Ferramenta **100% local e offline** que lê grandes volumes de documentos variados e gera **uma base Markdown estruturada e totalmente referenciada** para o **Microsoft 365 Copilot** usar como fonte das respostas. Cada documento recebe um ID (`[001]`, `[002]`...) em ordem numérica natural para que o Copilot cite exatamente de onde tirou cada informação.
 
-Formatos lidos: PDF (com texto ou digitalizado), Word (`.docx`), Excel (`.xlsx`, `.xlsm`, `.xls`), PowerPoint (`.pptx`), CSV, TXT, Markdown, HTML, e-mails `.eml`, JSON, XML, logs e imagens (`.png`, `.jpg`, `.tif`, `.bmp`, `.webp`). Imagens dentro de PDFs, Word, Excel e PowerPoint passam por OCR local.
+Formatos lidos: PDF (com texto ou digitalizado), Word (`.docx`), Excel (`.xlsx`, `.xlsm`, `.xls`), PowerPoint (`.pptx`), CSV, TXT, Markdown, HTML, e-mails `.eml` (incluindo anexos suportados), JSON, XML, logs e imagens (`.png`, `.jpg`, `.tif`, `.bmp`, `.webp`). Imagens dentro de PDFs, Word, Excel e PowerPoint passam por OCR local em passe único.
 
 > 🇺🇸 *English version: [README.md](README.md).* · 📜 *Histórico completo: [HISTORICO_E_ESTADO_ATUAL.md](HISTORICO_E_ESTADO_ATUAL.md).*
 
@@ -42,18 +42,18 @@ O menu mostra quantos arquivos foram encontrados por tipo e avisa sobre pastas i
 
 ## 📦 O que é gerado
 
-Em `saida_copilot/processado_AAAAMMDD_HHMMSS/` (cópia sempre atualizada em `saida_copilot/ultimo_processamento/`):
+Em `saida_copilot/processado_AAAAMMDD_HHMMSS/` (cópia sempre atualizada em `saida_copilot/ultimo_processamento/`), com foco padrão em **Markdown puro e referenciado**:
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `corpus_completo.md` | **A base única**: instruções para o Copilot, índice de documentos agrupado por pasta e todos os documentos |
-| `corpus_parte_XX.md` | A mesma base dividida em partes de até N MB (só quando não cabe em uma), cada uma com seu índice |
-| `00_INDICE_MESTRE.md` | Só o catálogo (ID, documento, tipo, observações) |
-| `por_pasta/*.md` | Um arquivo por pasta/departamento, para perguntas sobre um tema específico |
-| `corpus_rag.jsonl` | Uma linha por página, com metadados, para bancos vetoriais (Chroma, Qdrant, LangChain) |
-| `imagens/` | Pasta ordenada com diagramas e esquemas salvos (`docXXX_pYY_figZZ.png`) referenciados na base |
+| `corpus_completo.md` | **A base única**: instruções para o Copilot, índice em ordem natural, catálogo de diagramas e todos os documentos |
+| `corpus_parte_XX.md` | A mesma base dividida em partes de até N MB (só quando não cabe em uma), cada uma com índice e catálogo de diagramas |
+| `00_INDICE_MESTRE.md` | Só o catálogo (ID, documento, tipo, observações e tabela de diagramas) |
+| `por_pasta/*.md` | Um arquivo por pasta/departamento (com índice e catálogo de diagramas filtrados), para perguntas sobre um tema específico |
+| `imagens/` | Pasta ordenada (`docXXX_pYY_figZZ.png`) contendo **apenas** diagramas e esquemas visuais não traduzíveis em puro texto, referenciados no Markdown com transcrição OCR completa |
 | `relatorio_auditoria.md` | Falhas, documentos sem texto, OCR com baixa confiança, duplicados, versões semelhantes e formatos ignorados |
 | `PROMPT_PARA_COPILOT.txt` | Regras de resposta para colar no chat |
+| `corpus_rag.jsonl` / `.zip` | Saídas opcionais (desativadas por padrão; ativáveis no menu `[3] → [8]` e `[9]`) |
 
 ### Estrutura de cada documento na base
 
@@ -64,19 +64,19 @@ Em `saida_copilot/processado_AAAAMMDD_HHMMSS/` (cópia sempre atualizada em `sai
 - **Tipo:** PDF · **Páginas:** 12 · **OCR:** 3 trecho(s), confiança média 91%
 - **Metadados:** Título: ... · Autor: ... · Criado em: 2026-03-01
 
-(texto, títulos, listas e tabelas em Markdown, na ordem do documento original)
+(texto, títulos, listas e tabelas em Markdown, na ordem visual do documento original)
 
 *[Fim do documento [004]]*
 ```
 
 ### Cuidados com a qualidade da base
 
-- **Duplicados:** arquivos idênticos (ou com o mesmo texto) aparecem no índice como `duplicado de [ID]` e o conteúdo não é repetido.
-- **Versões semelhantes:** documentos com ≥ 80% do vocabulário em comum recebem um aviso para o Copilot não misturar versões.
-- **PDF:** tabelas viram tabelas Markdown sem duplicar o texto, cabeçalhos/rodapés repetidos e números de página são removidos (a 1ª página fica intacta), e frases quebradas em linhas são reunidas.
-- **OCR:** linhas e colunas de recibos e formulários são preservadas; logos repetidos são lidos uma vez; palavras quebradas (`Aute nticacao`) são unidas sem colar siglas (`LTDA`) nem palavras reais.
+- **Ordenação natural e Unicode NFC:** arquivos numerados (`1_Aula`, `2_Aula`, ..., `10_Aula`) ficam em ordem correta e acentos decompostos (NFD) são normalizados.
+- **Duplicados e grandes volumes:** arquivos idênticos aparecem como `duplicado de [ID]` sem repetir conteúdo; detecção escalável de versões semelhantes (≥ 80% de vocabulário em comum) para até 20.000 documentos.
+- **PDF estruturado:** ordem visual inteligente (rótulos laterais saem antes dos parágrafos), filtro anti-falsas tabelas em PDFs de slides/Canva (`|Col1|Col2|`), remoção de divisórias e cabeçalhos/rodapés multi-linha (até 6 linhas) e junção de frases quebradas.
+- **OCR em passe único (Texto Puro vs. Diagrama):** imagens de texto puro são transcritas integralmente no Markdown; apenas diagramas/esquemas visuais são salvos em `imagens/` preservando todo o texto OCR detectado dentro do card; repetições quase idênticas no mesmo documento são evitadas e palavras quebradas (`Aute nticacao`) são unidas sem colar siglas (`LTDA`).
 - **Acentuação corrompida** (`ObservaÃ§Ã£o`) é corrigida automaticamente.
-- **Dados pessoais** são preservados por padrão; ative a anonimização em `[3] → [20]`, com `[P]` na confirmação ou com `--redact-pii`.
+- **Dados pessoais** são preservados por padrão; ative a anonimização em `[3] → [21]`, com `[P]` na confirmação ou com `--redact-pii`.
 
 ---
 

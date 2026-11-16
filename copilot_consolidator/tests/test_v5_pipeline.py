@@ -224,7 +224,8 @@ class TestCorrecoesV61(unittest.TestCase):
 
             cfg = dict(app.CONFIG_PADRAO, idioma="pt", pastas_entrada=[str(entrada)],
                        pasta_saida=str(Path(tmp) / "saida"), max_workers=2,
-                       gerar_arquivo_zip=True, usar_ocr_em_pdf=False, usar_ocr_em_imagens_embutidas=False)
+                       gerar_jsonl=True, gerar_arquivo_zip=True,
+                       usar_ocr_em_pdf=False, usar_ocr_em_imagens_embutidas=False)
             res = app.executar_pipeline(cfg, pausar_no_final=False, interativo=False)
             self.assertIsNotNone(res)
             self.assertEqual(res["erros"], [])
@@ -325,6 +326,7 @@ class TestRecursosV62(unittest.TestCase):
                 pasta_saida=str(Path(tmp) / "saida_com_diag"),
                 max_workers=2,
                 salvar_diagramas_em_pasta=True,
+                gerar_jsonl=True,
                 gerar_arquivo_zip=True,
             )
             res_ativo = app.executar_pipeline(cfg_ativo, pausar_no_final=False, interativo=False)
@@ -372,6 +374,193 @@ class TestRecursosV62(unittest.TestCase):
             self.assertFalse((pasta_inativo / "imagens").exists(), "A pasta imagens/ NÃO deve ser criada quando desativada.")
             corpus_inativo = (pasta_inativo / "corpus_completo.md").read_text(encoding="utf-8")
             self.assertNotIn("imagens/doc001_p01_fig01.png", corpus_inativo)
+
+
+class TestMelhoriasV63(unittest.TestCase):
+    """Testes das melhorias da v6.3: foco Markdown, ordenação natural, Unicode NFC, PDF e OCR."""
+
+    def test_padrao_somente_markdown(self):
+        self.assertFalse(app.CONFIG_PADRAO["gerar_jsonl"])
+        self.assertFalse(app.CONFIG_PADRAO["gerar_arquivo_zip"])
+
+    def test_ordenacao_natural_documentos(self):
+        vazio = {"ok": 0, "empty": 0, "error": 0}
+        resultados = [
+            ("10_Aula.pdf", "Curso/10_Aula.pdf", "Curso", {"conteudo": "dez", "diag_ocr": vazio}),
+            ("2_Aula.pdf", "Curso/2_Aula.pdf", "Curso", {"conteudo": "dois", "diag_ocr": vazio}),
+            ("1_Aula.pdf", "Curso/1_Aula.pdf", "Curso", {"conteudo": "um", "diag_ocr": vazio}),
+        ]
+        docs = app.montar_documentos(resultados, "pt")
+        self.assertEqual([(d["id"], d["nome"]) for d in docs], [
+            ("[001]", "1_Aula.pdf"),
+            ("[002]", "2_Aula.pdf"),
+            ("[003]", "10_Aula.pdf"),
+        ])
+
+    def test_normalizacao_unicode_nfc(self):
+        import unicodedata
+        nfd = "Correc\u0327a\u0303o de Progresso\u0303es - HI\u0301BRIDO"
+        nfc = unicodedata.normalize("NFC", nfd)
+        self.assertEqual(app.normalizar_espacos(nfd), nfc)
+        meta = app.limpar_meta_info({"title": nfd})
+        self.assertEqual(meta["title"], nfc)
+
+    def test_cabecalhos_rodapes_multilinha_e_divisorias(self):
+        cab = "_________\nWebsite: https://exemplo.com\nInstagram: @perfil\nYouTube: canal"
+        rod = "Minha Empresa\nSLOGAN DA EMPRESA"
+        paginas = [
+            f"{cab}\nConteúdo exclusivo da página {i} com texto único {i * 13}.\n{rod}\nPágina {i} de 4"
+            for i in range(1, 5)
+        ]
+        # Testa remoção de divisória em bloco e cabeçalho/rodapé multi-linha a partir da pág. 2
+        limpas, removidas = app.remover_cabecalhos_rodapes(
+            [app._limpar_bloco_pdf(p) for p in paginas]
+        )
+        self.assertGreater(removidas, 0)
+        self.assertNotIn("_________", limpas[0])
+        for p in limpas[1:]:
+            self.assertNotIn("Website:", p)
+            self.assertNotIn("Instagram:", p)
+            self.assertNotIn("SLOGAN DA EMPRESA", p)
+            self.assertIn("Conteúdo exclusivo da página", p)
+
+    def test_imagem_texto_puro_nao_vira_diagrama(self):
+        from PIL import Image, ImageDraw, ImageFont
+        import io
+
+        im = Image.new("RGB", (800, 420), (255, 255, 255))
+        d = ImageDraw.Draw(im)
+        try:
+            fonte = ImageFont.truetype("arial.ttf", 28)
+        except Exception:
+            fonte = ImageFont.load_default()
+        linhas = [
+            "COMPROVANTE DE PAGAMENTO",
+            "Empresa Exemplo Ltda",
+            "Valor Pago: R$ 1.250,00",
+            "Data: 16/11/2026",
+            "Autenticacao: ABC-1234-XYZ",
+        ]
+        for idx, ln in enumerate(linhas):
+            d.text((40, 40 + idx * 65), ln, fill=(0, 0, 0), font=fonte)
+
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+        eh_diag, motivo, rotulos, _png, _dims = app.classificar_e_extrair_diagrama(
+            buf.getvalue(), min_dim_diag=150
+        )
+        self.assertFalse(eh_diag, f"Imagem de texto puro não deve virar diagrama (motivo={motivo}, rotulos={rotulos})")
+
+    def test_diagrama_preserva_texto_ocr_completo(self):
+        doc = {"id": "[001]", "nome": "arquitetura.pdf", "rel": "TI/arquitetura.pdf"}
+        marcador = "<!--DIAGRAMA_REF:abc:p:2:1-->"
+        diagramas = [{
+            "marcador": marcador,
+            "tipo_local": "p",
+            "num_local": 2,
+            "largura": 800,
+            "altura": 600,
+            "rotulos": ["Gateway", "API", "Banco"],
+            "texto_ocr": "Gateway -> API Principal\nAPI Principal -> Banco de Dados\nReplica de Leitura",
+            "rel_path": "imagens/doc001_p02_fig01.png",
+            "rel_path_sub": "../imagens/doc001_p02_fig01.png",
+        }]
+        saida = app.formatar_diagramas_no_texto(f"Antes\n\n{marcador}\n\nDepois", diagramas, doc, "pt")
+        self.assertIn("imagens/doc001_p02_fig01.png", saida)
+        self.assertIn("Gateway -> API Principal", saida)
+        self.assertIn("Replica de Leitura", saida)
+
+    def test_ordenacao_visual_blocos_pdf_e_filtro_falsas_tabelas(self):
+        import pymupdf
+
+        # Falsa tabela (células repetidas em 4 colunas como caixas do Canva) deve ser rejeitada
+        falsa = [
+            ["TEXTO REPETIDO", "TEXTO REPETIDO", "", ""],
+            ["TEXTO REPETIDO", "TEXTO REPETIDO", "", ""],
+        ]
+        self.assertEqual(app._limpar_matriz_tabela_pdf(falsa), "")
+
+        # Tabela real deve ser convertida normalmente
+        real = [["Casa", "Significado"], ["Casa 1", "Identidade"], ["Casa 2", "Recursos"]]
+        md_real = app._limpar_matriz_tabela_pdf(real)
+        self.assertIn("| Casa | Significado |", md_real)
+        self.assertIn("| Casa 1 | Identidade |", md_real)
+
+        # Ordenação visual: rótulo curto na mesma faixa horizontal deve preceder parágrafo longo mesmo se gravado depois no PDF
+        elementos = [
+            (pymupdf.Rect(180, 100, 500, 180), "Texto explicativo completo da primeira casa astrologica com detalhes.", False),
+            (pymupdf.Rect(40, 120, 130, 145), "Casa 1", False),
+        ]
+        ordenados = app._ordenar_blocos_visualmente(elementos)
+        self.assertEqual(ordenados[0][1], "Casa 1")
+        self.assertIn("Texto explicativo", ordenados[1][1])
+
+    def test_catalogo_diagramas_em_por_pasta_e_anexos_eml(self):
+        from PIL import Image, ImageDraw
+        from email.message import EmailMessage
+
+        with tempfile.TemporaryDirectory() as tmp:
+            entrada = Path(tmp) / "Inbox"
+            entrada.mkdir(parents=True)
+
+            # 1. Diagrama na pasta
+            im = Image.new("RGB", (500, 350), (255, 255, 255))
+            d = ImageDraw.Draw(im)
+            d.rectangle([40, 40, 200, 150], outline=(0, 0, 0), width=4)
+            d.line([200, 95, 420, 95], fill=(0, 0, 0), width=4)
+            im.save(entrada / "esquema.png")
+
+            # 2. E-mail com anexo CSV
+            msg = EmailMessage()
+            msg["From"] = "remetente@empresa.com"
+            msg["To"] = "destino@empresa.com"
+            msg["Subject"] = "Relatório anexo"
+            msg.set_content("Segue tabela em anexo.")
+            msg.add_attachment(b"Item;Valor\nLicenca;500\n", maintype="text", subtype="csv", filename="dados.csv")
+            (entrada / "mensagem.eml").write_bytes(msg.as_bytes())
+
+            cfg = dict(
+                app.CONFIG_PADRAO,
+                idioma="pt",
+                pastas_entrada=[str(entrada)],
+                pasta_saida=str(Path(tmp) / "saida"),
+                max_workers=1,
+                salvar_diagramas_em_pasta=True,
+            )
+            res = app.executar_pipeline(cfg, pausar_no_final=False, interativo=False)
+            self.assertIsNotNone(res)
+            self.assertEqual(res["erros"], [])
+
+            corpus = (res["pasta"] / "corpus_completo.md").read_text(encoding="utf-8")
+            self.assertIn("### Anexo: dados.csv", corpus)
+            self.assertIn("| Licenca | 500 |", corpus)
+
+            por_pasta = list((res["pasta"] / "por_pasta").glob("*.md"))
+            self.assertEqual(len(por_pasta), 1)
+            pasta_md = por_pasta[0].read_text(encoding="utf-8")
+            self.assertIn("Catálogo de Diagramas e Esquemas Técnicos", pasta_md)
+            self.assertIn("../imagens/doc001_p01_fig01.png", pasta_md)
+
+    def test_quase_duplicados_grande_volume(self):
+        def tag(n: int) -> str:
+            return "".join(chr(97 + ((n >> (4 * b)) & 15)) for b in range(4))
+
+        docs = []
+        for idx in range(1, 301):
+            base = " ".join(f"palavra{tag(idx)}{tag(k)}" for k in range(40))
+            docs.append({
+                "id": f"[{idx:03d}]", "num": idx, "nome": f"doc_{idx}.txt", "rel": f"P/doc_{idx}.txt",
+                "grupo": "P", "ext": ".txt", "meta": {"conteudo": base}, "dup_de": None,
+                "dup_tipo": None, "semelhantes": [],
+            })
+        # Cria versão quase idêntica do doc 010 no doc 250 (38/40 palavras em comum = 95%)
+        palavras_10 = docs[9]["meta"]["conteudo"].split()
+        docs[249]["meta"]["conteudo"] = " ".join(palavras_10[:38] + ["exclusivaprim", "exclusivaseg"])
+
+        pares = app.detectar_quase_duplicados(docs)
+        self.assertEqual(len(pares), 1)
+        self.assertEqual((pares[0][0]["id"], pares[0][1]["id"]), ("[010]", "[250]"))
+        self.assertGreaterEqual(pares[0][2], 0.90)
 
 
 if __name__ == "__main__":

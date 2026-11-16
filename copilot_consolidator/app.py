@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.2)
-Local Document Consolidator for Microsoft Copilot & RAG (v6.2)
+Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.3)
+Local Document Consolidator for Microsoft Copilot & RAG (v6.3)
 
 Objetivo: ler grandes volumes de documentos heterogêneos (PDF, Word, Excel, PowerPoint,
 CSV, texto, HTML, e-mails e imagens) e gerar UMA base Markdown única, organizada e
@@ -23,7 +23,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import unicodedata
 import warnings
 import zipfile
 from collections import Counter
@@ -53,9 +55,9 @@ for _fluxo in (sys.stdout, sys.stderr):
 if platform.system() == "Windows":
     os.system("")  # habilita sequências ANSI no console do Windows
 
-VERSAO = "6.2"
+VERSAO = "6.3"
 # Incrementar sempre que a lógica de extração mudar: invalida o cache antigo automaticamente.
-VERSAO_EXTRATOR = "6.2.0"
+VERSAO_EXTRATOR = "6.3.0"
 
 
 class Cor:
@@ -217,11 +219,11 @@ CONFIG_PADRAO = {
     "qtd_docs_por_parte": 50,
     "gerar_individual_por_arquivo": False,
     "gerar_por_pasta_raiz": True,
-    "gerar_jsonl": True,
+    "gerar_jsonl": False,
     "omitir_duplicados": True,
     "remover_cabecalhos_rodapes": True,
     "usar_pasta_timestamp": True,
-    "gerar_arquivo_zip": True,
+    "gerar_arquivo_zip": False,
     # Privacidade e desempenho
     "mascarar_pii": False,
     "max_workers": min(4, os.cpu_count() or 4),
@@ -370,6 +372,19 @@ def resolver_caminho(p_str: str) -> Path:
 
 def _chave_caminho(p: Path) -> str:
     return os.path.normcase(str(p))
+
+
+def normalizar_unicode(texto: str) -> str:
+    """Normaliza Unicode para NFC (evita acentos decompostos NFD de macOS/Canva)."""
+    if not texto:
+        return ""
+    return unicodedata.normalize("NFC", texto)
+
+
+def chave_ordenacao_natural(texto: str) -> list:
+    """Chave de ordenação natural numérica (ex.: 1_Aula, 2_Aula, ..., 10_Aula)."""
+    s = unicodedata.normalize("NFC", str(texto)).lower()
+    return [(0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"(\d+)", s) if p]
 
 
 def linha(cor: str = Cor.TITULO, char: str = "=") -> str:
@@ -541,10 +556,10 @@ def rebaixar_titulos_markdown(texto: str, niveis: int = 2) -> str:
 
 
 def normalizar_espacos(texto: str) -> str:
-    """Remove espaços no fim das linhas e excesso de linhas em branco."""
+    """Remove espaços no fim das linhas e excesso de linhas em branco, normalizando Unicode NFC."""
     if not texto:
         return ""
-    texto = texto.replace("\r\n", "\n").replace("\r", "\n").replace(" ", " ")
+    texto = normalizar_unicode(texto).replace("\r\n", "\n").replace("\r", "\n").replace(" ", " ")
     texto = "\n".join(ln.rstrip() for ln in texto.split("\n"))
     return re.sub(r"\n{3,}", "\n\n", texto).strip()
 
@@ -572,7 +587,7 @@ def ler_texto_com_fallback(caminho: Path) -> str:
     if texto is None:
         texto = dados.decode("utf-8", errors="replace")
     texto_corrigido, _ = reparar_mojibake(texto)
-    return texto_corrigido
+    return normalizar_unicode(texto_corrigido)
 
 
 def extrair_csv_estruturado(caminho: Path) -> str:
@@ -691,17 +706,23 @@ def html_para_markdown(conteudo_html: str) -> tuple[str, str]:
     return conv.resultado(), conv.titulo_pagina
 
 
-def extrair_email(caminho: Path, lang: str) -> tuple[str, dict]:
+def extrair_email(
+    caminho: Path,
+    lang: str,
+    cfg: dict | None = None,
+    pasta_cache: Path | None = None,
+    permitir_anexos: bool = True,
+) -> tuple[str, dict]:
     msg = email.message_from_bytes(caminho.read_bytes(), policy=email_policy.default)
-    meta = {}
+    meta: dict = {}
     cab = []
     for campo, rot_pt, rot_en in (("From", "De", "From"), ("To", "Para", "To"), ("Cc", "Cc", "Cc"),
                                   ("Date", "Data", "Date"), ("Subject", "Assunto", "Subject")):
         valor = msg.get(campo)
         if valor:
-            cab.append(f"- **{tx(lang, rot_pt, rot_en)}:** {escapar_celula(str(valor))}")
+            cab.append(f"- **{tx(lang, rot_pt, rot_en)}:** {escapar_celula(normalizar_unicode(str(valor)))}")
             if campo == "Subject":
-                meta["title"] = str(valor)
+                meta["title"] = normalizar_unicode(str(valor))
     corpo = ""
     try:
         parte = msg.get_body(preferencelist=("plain", "html"))
@@ -711,26 +732,91 @@ def extrair_email(caminho: Path, lang: str) -> tuple[str, dict]:
                 corpo, _ = html_para_markdown(corpo)
     except Exception:
         corpo = ""
-    anexos = []
-    try:
-        for anexo in msg.iter_attachments():
-            nome = anexo.get_filename()
-            if nome:
-                anexos.append(nome)
-    except Exception:
-        pass
+
     partes = ["\n".join(cab)] if cab else []
     if corpo.strip():
         partes.append(normalizar_espacos(corpo))
-    if anexos:
-        partes.append(f"**{tx(lang, 'Anexos (não extraídos)', 'Attachments (not extracted)')}:** " + ", ".join(anexos))
+
+    anexos_nao_extraidos = []
+    diagramas_anexos: list[dict] = []
+    ocr_total = 0
+    diag_ocr_total = {"ok": 0, "empty": 0, "error": 0}
+    scores_anexos: list[float] = []
+    exts_anexo = set(EXTENSOES_PADRAO) - {".eml"}
+
+    try:
+        anexos_iter = list(msg.iter_attachments())
+    except Exception:
+        anexos_iter = []
+
+    if anexos_iter:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            for idx, anexo in enumerate(anexos_iter, start=1):
+                nome = normalizar_unicode(anexo.get_filename() or "")
+                if not nome:
+                    continue
+                ext_a = Path(nome).suffix.lower()
+                if not permitir_anexos or ext_a not in exts_anexo:
+                    anexos_nao_extraidos.append(nome)
+                    continue
+                payload = None
+                try:
+                    payload = anexo.get_payload(decode=True)
+                    if payload is None:
+                        conteudo_a = anexo.get_content()
+                        if isinstance(conteudo_a, bytes):
+                            payload = conteudo_a
+                        elif isinstance(conteudo_a, str):
+                            payload = conteudo_a.encode("utf-8", errors="replace")
+                except Exception:
+                    payload = None
+                if not payload:
+                    anexos_nao_extraidos.append(nome)
+                    continue
+                arq_tmp = Path(tmp_dir) / f"{idx:02d}_{sanitizar_nome_arquivo(nome)}"
+                if arq_tmp.suffix.lower() != ext_a:
+                    arq_tmp = arq_tmp.with_suffix(ext_a)
+                try:
+                    arq_tmp.write_bytes(payload)
+                    txt_a, ocr_a, _pags_a, meta_a, _rag_a, conf_a, diag_a = _despachar_extrator(
+                        arq_tmp, cfg or CONFIG_PADRAO, pasta_cache, permitir_anexos_eml=False
+                    )
+                    ocr_total += ocr_a
+                    for k in diag_ocr_total:
+                        diag_ocr_total[k] += (diag_a or {}).get(k, 0)
+                    if conf_a:
+                        scores_anexos.append(conf_a)
+                    for d_img in (meta_a or {}).get("diagramas", []):
+                        diagramas_anexos.append(d_img)
+                    if (txt_a or "").strip():
+                        partes.append(f"### {tx(lang, 'Anexo', 'Attachment')}: {nome}\n\n{txt_a.strip()}")
+                    else:
+                        anexos_nao_extraidos.append(nome)
+                except Exception:
+                    anexos_nao_extraidos.append(nome)
+
+    if anexos_nao_extraidos:
+        partes.append(f"**{tx(lang, 'Anexos (não extraídos)', 'Attachments (not extracted)')}:** " + ", ".join(anexos_nao_extraidos))
+    if diagramas_anexos:
+        meta["diagramas"] = diagramas_anexos
+    if ocr_total or any(diag_ocr_total.values()):
+        meta["_ocr_count"] = ocr_total
+        meta["_diag_ocr"] = diag_ocr_total
+        meta["_confianca"] = (sum(scores_anexos) / len(scores_anexos)) if scores_anexos else 0.0
     return "\n\n".join(partes), meta
 
 
-def extrair_texto_generico(caminho: Path, ext: str, lang: str) -> tuple[str, dict]:
+def extrair_texto_generico(
+    caminho: Path,
+    ext: str,
+    lang: str,
+    cfg: dict | None = None,
+    pasta_cache: Path | None = None,
+    permitir_anexos_eml: bool = True,
+) -> tuple[str, dict]:
     """Lê .txt, .md, .log, .json, .xml, .html e .eml."""
     if ext == ".eml":
-        return extrair_email(caminho, lang)
+        return extrair_email(caminho, lang, cfg=cfg, pasta_cache=pasta_cache, permitir_anexos=permitir_anexos_eml)
     texto = ler_texto_com_fallback(caminho)
     meta = {}
     if ext in (".html", ".htm"):
@@ -880,6 +966,199 @@ def _preparar_imagem_ocr(img_bytes: bytes, min_dim: int, proporcao_max_aspecto: 
     return buf.getvalue(), "ok"
 
 
+def _medir_residuo_visual(png_bytes: bytes, boxes: list) -> tuple[float, float]:
+    """Mede a densidade de bordas não-textuais após mascarar as caixas detectadas pelo OCR."""
+    from PIL import Image, ImageDraw, ImageFilter, ImageStat
+
+    im_ocr = Image.open(io.BytesIO(png_bytes)).convert("L")
+    w_ocr, h_ocr = im_ocr.size
+    fundo = int(ImageStat.Stat(im_ocr).median[0])
+    im_sem_texto = im_ocr.copy()
+    draw = ImageDraw.Draw(im_sem_texto)
+    for box in boxes:
+        if not box:
+            continue
+        try:
+            xs = [float(p[0]) for p in box]
+            ys = [float(p[1]) for p in box]
+            x0 = max(0, int(min(xs)) - 4)
+            y0 = max(0, int(min(ys)) - 4)
+            x1 = min(w_ocr, int(max(xs)) + 4)
+            y1 = min(h_ocr, int(max(ys)) + 4)
+            if x1 > x0 and y1 > y0:
+                draw.rectangle([x0, y0, x1, y1], fill=fundo)
+        except Exception:
+            continue
+
+    bordas = im_sem_texto.filter(ImageFilter.FIND_EDGES)
+    if w_ocr > 24 and h_ocr > 24:
+        bordas = bordas.crop((4, 4, w_ocr - 4, h_ocr - 4))
+    stat = ImageStat.Stat(bordas)
+    return float(stat.mean[0]), float(stat.stddev[0])
+
+
+def _analisar_imagem_completa(
+    img_bytes: bytes,
+    min_dim_ocr: int = 150,
+    min_dim_diag: int = 150,
+    limiar_confianca: float = 0.50,
+    prop_max_ocr: float = 20.0,
+    prop_max_diag: float = 12.0,
+    analisar_diagrama: bool = True,
+) -> dict:
+    """
+    Executa preparação + RapidOCR uma ÚNICA vez sobre a imagem e devolve tanto o texto OCR
+    quanto a classificação de diagrama vs. imagem de texto puro.
+    """
+    from PIL import Image, UnidentifiedImageError
+
+    vazio = {
+        "texto": "", "conf": 0.0, "estado": "empty_or_low_conf", "erro": None,
+        "eh_diag": False, "motivo_diag": "invalid", "rotulos": [], "png_bytes": None,
+        "dims": (0, 0), "res_std": 0.0, "cobertura_texto": 0.0,
+    }
+    if not img_bytes:
+        return vazio
+
+    try:
+        im = Image.open(io.BytesIO(img_bytes))
+        im.load()
+        w, h = im.size
+    except (UnidentifiedImageError, OSError, ValueError) as e:
+        vazio["estado"] = "empty_or_low_conf"
+        vazio["motivo_diag"] = "unsupported"
+        return vazio
+
+    razao_aspecto = max(w, h) / max(min(w, h), 1)
+    elegivel_ocr = max(w, h) >= min_dim_ocr and min(w, h) >= 20 and razao_aspecto <= prop_max_ocr
+    elegivel_diag = (
+        analisar_diagrama
+        and razao_aspecto <= prop_max_diag
+        and max(w, h) >= min_dim_diag
+        and min(w, h) >= 50
+    )
+
+    motivo_diag = "decoracao_ou_foto"
+    if analisar_diagrama:
+        if razao_aspecto > prop_max_diag:
+            motivo_diag = "divider_or_banner"
+        elif max(w, h) < min_dim_diag or min(w, h) < 50:
+            motivo_diag = "small_icon"
+
+    if not elegivel_ocr and not elegivel_diag:
+        vazio["dims"] = (w, h)
+        vazio["motivo_diag"] = motivo_diag
+        return vazio
+
+    min_prep = min(min_dim_ocr, min_dim_diag) if (elegivel_ocr and elegivel_diag) else (min_dim_ocr if elegivel_ocr else min_dim_diag)
+    prop_prep = max(prop_max_ocr, prop_max_diag)
+    try:
+        png_bytes, _ = _preparar_imagem_ocr(img_bytes, min_dim=min_prep, proporcao_max_aspecto=prop_prep)
+    except Exception as e:
+        vazio["estado"] = "error"
+        vazio["erro"] = str(e)
+        vazio["dims"] = (w, h)
+        return vazio
+
+    if not png_bytes:
+        vazio["dims"] = (w, h)
+        vazio["motivo_diag"] = motivo_diag
+        return vazio
+
+    engine = obter_ocr_worker()
+    if not engine:
+        vazio["estado"] = "error"
+        vazio["erro"] = "OCR engine (rapidocr-onnxruntime) unavailable"
+        vazio["png_bytes"] = png_bytes
+        vazio["dims"] = (w, h)
+        return vazio
+
+    try:
+        itens = _itens_resultado_ocr(engine(png_bytes))
+    except Exception as e:
+        vazio["estado"] = "error"
+        vazio["erro"] = str(e)
+        vazio["png_bytes"] = png_bytes
+        vazio["dims"] = (w, h)
+        return vazio
+
+    validos, scores, boxes_validas, rotulos = [], [], [], []
+    area_texto = 0.0
+    for box, txt, sc in itens:
+        try:
+            sc = float(sc)
+        except (TypeError, ValueError):
+            sc = 1.0
+        txt_str = str(txt).strip()
+        if txt_str and sc >= limiar_confianca:
+            validos.append((box, txt, sc))
+            scores.append(sc)
+            rotulos.append(txt_str)
+            boxes_validas.append(box)
+            try:
+                xs = [float(p[0]) for p in box]
+                ys = [float(p[1]) for p in box]
+                area_texto += max(0.0, max(xs) - min(xs)) * max(0.0, max(ys) - min(ys))
+            except Exception:
+                pass
+
+    conf_media = (sum(scores) / len(scores)) if scores else 0.0
+    texto = ""
+    estado = "empty_or_low_conf"
+    if validos and elegivel_ocr:
+        texto = reconstruir_layout_ocr(validos)
+        texto = normalizar_texto_ocr(texto)
+        texto, _ = corrigir_espacos_ocr(texto)
+        texto, _ = reparar_mojibake(texto)
+        if texto.strip():
+            estado = "ok"
+
+    eh_diag = False
+    res_mean = 0.0
+    res_std = 0.0
+    cobertura_texto = 0.0
+    if elegivel_diag:
+        try:
+            with Image.open(io.BytesIO(png_bytes)) as im_png:
+                w_ocr, h_ocr = im_png.size
+            cobertura_texto = area_texto / max(w_ocr * h_ocr, 1)
+            res_mean, res_std = _medir_residuo_visual(png_bytes, boxes_validas)
+        except Exception:
+            res_mean, res_std = 0.0, 0.0
+
+        qtd_linhas = len(rotulos)
+        if cobertura_texto >= 0.40 and qtd_linhas >= 16 and res_mean < 6.0:
+            eh_diag = False
+            motivo_diag = "scanned_text_page"
+        elif qtd_linhas >= 1 and (
+            (res_mean < 4.5 and res_std < 18.0 and conf_media >= 0.60)
+            or (cobertura_texto >= 0.30 and qtd_linhas >= 10 and res_mean < 8.0)
+        ):
+            # Imagem traduzível em puro texto (comprovantes, recibos, prints limpos de parágrafos)
+            eh_diag = False
+            motivo_diag = "pure_text_image"
+        elif (res_std >= 8.0 or res_mean >= 2.0) and min(w, h) >= 120:
+            eh_diag = True
+            motivo_diag = "diagrama_com_rotulos" if qtd_linhas >= 1 else "esquema_visual"
+        else:
+            eh_diag = False
+            motivo_diag = "decoracao_ou_foto"
+
+    return {
+        "texto": texto,
+        "conf": conf_media,
+        "estado": estado,
+        "erro": None,
+        "eh_diag": eh_diag,
+        "motivo_diag": motivo_diag,
+        "rotulos": rotulos,
+        "png_bytes": png_bytes,
+        "dims": (w, h),
+        "res_std": res_std,
+        "cobertura_texto": cobertura_texto,
+    }
+
+
 def executar_ocr_em_bytes(
     img_bytes: bytes,
     min_dim: int = 150,
@@ -888,43 +1167,16 @@ def executar_ocr_em_bytes(
 ) -> tuple[str, float, str, str | None]:
     """
     Executa OCR em bytes de imagem. Retorna (texto, confianca_media, estado, erro).
-    estado: 'ok' | 'empty_or_low_conf' (sem texto legível, imagem pequena ou formato vetorial
-    não suportado, como EMF/WMF) | 'error' (falha técnica real).
+    estado: 'ok' | 'empty_or_low_conf' | 'error'.
     """
-    if not img_bytes:
-        return "", 0.0, "empty_or_low_conf", None
-    try:
-        png, motivo = _preparar_imagem_ocr(img_bytes, min_dim, proporcao_max_aspecto)
-    except Exception as e:
-        return "", 0.0, "error", str(e)
-    if png is None:
-        return "", 0.0, "empty_or_low_conf", None
-
-    engine = obter_ocr_worker()
-    if not engine:
-        return "", 0.0, "error", "OCR engine (rapidocr-onnxruntime) unavailable"
-    try:
-        itens = _itens_resultado_ocr(engine(png))
-    except Exception as e:
-        return "", 0.0, "error", str(e)
-
-    validos, scores = [], []
-    for box, txt, sc in itens:
-        try:
-            sc = float(sc)
-        except (TypeError, ValueError):
-            sc = 1.0
-        if str(txt).strip() and sc >= limiar_confianca:
-            validos.append((box, txt, sc))
-            scores.append(sc)
-    if not validos:
-        return "", 0.0, "empty_or_low_conf", None
-
-    texto = reconstruir_layout_ocr(validos)
-    texto = normalizar_texto_ocr(texto)
-    texto, _ = corrigir_espacos_ocr(texto)
-    texto, _ = reparar_mojibake(texto)
-    return texto, sum(scores) / len(scores), "ok", None
+    info = _analisar_imagem_completa(
+        img_bytes,
+        min_dim_ocr=min_dim,
+        limiar_confianca=limiar_confianca,
+        prop_max_ocr=proporcao_max_aspecto,
+        analisar_diagrama=False,
+    )
+    return info["texto"], info["conf"], info["estado"], info["erro"]
 
 
 def classificar_e_extrair_diagrama(
@@ -934,83 +1186,23 @@ def classificar_e_extrair_diagrama(
     limiar_conf: float = 0.40,
 ) -> tuple[bool, str, list[str], bytes | None, tuple[int, int]]:
     """
-    Avalia se uma imagem é um diagrama/esquema/gráfico técnico (que não seja apenas texto corrido e não seja ruído).
+    Avalia se uma imagem é um diagrama/esquema/gráfico técnico (não traduzível em puro texto).
     Retorna: (eh_diagrama, motivo, rotulos_ocr, png_bytes, (largura, altura))
     """
-    from PIL import Image, ImageFilter, ImageStat, UnidentifiedImageError
-    try:
-        im = Image.open(io.BytesIO(img_bytes))
-        im.load()
-    except (UnidentifiedImageError, OSError, ValueError):
-        return False, "unsupported", [], None, (0, 0)
-
-    w, h = im.size
-    razao_aspecto = max(w, h) / max(min(w, h), 1)
-    if razao_aspecto > prop_max:
-        return False, "divider_or_banner", [], None, (w, h)
-    if max(w, h) < min_dim_diag or min(w, h) < 50:
-        return False, "small_icon", [], None, (w, h)
-
-    png_bytes, motivo = _preparar_imagem_ocr(img_bytes, min_dim=min_dim_diag, proporcao_max_aspecto=prop_max)
-    if not png_bytes:
-        return False, "invalid", [], None, (w, h)
-
-    engine = obter_ocr_worker()
-    itens_ocr = []
-    if engine:
-        try:
-            itens_ocr = _itens_resultado_ocr(engine(png_bytes))
-        except Exception:
-            itens_ocr = []
-
-    area_total = max(w * h, 1)
-    area_texto = 0
-    rotulos = []
-    for box, txt, sc in itens_ocr:
-        try:
-            sc = float(sc)
-        except (TypeError, ValueError):
-            sc = 1.0
-        txt_str = str(txt).strip()
-        if txt_str and sc >= limiar_conf:
-            rotulos.append(txt_str)
-            try:
-                xs = [p[0] for p in box]
-                ys = [p[1] for p in box]
-                larg_b = max(xs) - min(xs)
-                alt_b = max(ys) - min(ys)
-                area_texto += larg_b * alt_b
-            except Exception:
-                pass
-
-    cobertura_texto = area_texto / area_total
-    qtd_linhas = len(rotulos)
-
-    # 1. Página escaneada densa de texto corrido (contrato, ata, livro): não é diagrama
-    if cobertura_texto >= 0.35 and qtd_linhas >= 16:
-        return False, "scanned_text_page", rotulos, png_bytes, (w, h)
-
-    # 2. Diagrama/fluxograma com caixas e rótulos
-    if 1 <= qtd_linhas < 16 and cobertura_texto < 0.35:
-        return True, "diagrama_com_rotulos", rotulos, png_bytes, (w, h)
-
-    # 3. Esquema visual com pouco ou nenhum texto legível (circuitos, CAD, wireframe, arquitetura sem texto)
-    try:
-        im_gray = im.convert("L")
-        bordas = im_gray.filter(ImageFilter.FIND_EDGES)
-        stat = ImageStat.Stat(bordas)
-        stddev = stat.stddev[0]
-        mean = stat.mean[0]
-        if (stddev >= 8.0 or mean >= 2.0) and min(w, h) >= 120:
-            return True, "esquema_visual", rotulos, png_bytes, (w, h)
-    except Exception:
-        pass
-
-    return False, "decoracao_ou_foto", rotulos, png_bytes, (w, h)
+    info = _analisar_imagem_completa(
+        img_bytes,
+        min_dim_ocr=min_dim_diag,
+        min_dim_diag=min_dim_diag,
+        limiar_confianca=limiar_conf,
+        prop_max_ocr=prop_max,
+        prop_max_diag=prop_max,
+        analisar_diagrama=True,
+    )
+    return info["eh_diag"], info["motivo_diag"], info["rotulos"], info["png_bytes"], info["dims"]
 
 
 class _ContextoOCR:
-    """Acumula estatísticas de OCR de um documento, detecta diagramas e evita repetir imagens idênticas (logos)."""
+    """Acumula estatísticas de OCR de um documento, detecta diagramas (passe único) e evita repetições."""
 
     def __init__(
         self,
@@ -1035,9 +1227,45 @@ class _ContextoOCR:
         self.diagramas: list[dict] = []
         self.contador_figuras = 0
         self._hashes_vistos: set[str] = set()
+        self._textos_ocr_vistos: list[set[str]] = []
 
-    def ocr(self, img_bytes: bytes, num_local: int = 1, tipo_local: str = "p") -> str | None:
-        """Retorna o texto da imagem, marcador de diagrama, ou None se não houver texto ou se a imagem já apareceu."""
+    def _registrar_diagrama(self, h: str, info: dict, num_local: int, tipo_local: str, guardar_texto: bool) -> str:
+        self.contador_figuras += 1
+        png_bytes = info.get("png_bytes")
+        if self.pasta_cache and png_bytes:
+            try:
+                pasta_blobs = self.pasta_cache / "blobs"
+                pasta_blobs.mkdir(parents=True, exist_ok=True)
+                (pasta_blobs / f"{h}.png").write_bytes(png_bytes)
+            except Exception:
+                pass
+        marcador = f"<!--DIAGRAMA_REF:{h}:{tipo_local}:{num_local}:{self.contador_figuras}-->"
+        dims = info.get("dims", (0, 0))
+        info_diag = {
+            "id_blob": h,
+            "tipo_local": tipo_local,
+            "num_local": num_local,
+            "indice": self.contador_figuras,
+            "largura": dims[0],
+            "altura": dims[1],
+            "rotulos": info.get("rotulos", []),
+            "texto_ocr": info.get("texto", "") if guardar_texto else "",
+            "marcador": marcador,
+        }
+        self.diagramas.append(info_diag)
+        return marcador
+
+    def ocr(
+        self,
+        img_bytes: bytes,
+        num_local: int = 1,
+        tipo_local: str = "p",
+        pagina_inteira: bool = False,
+    ) -> str | None:
+        """
+        Executa OCR em passe único. Retorna texto OCR, marcador de diagrama, ambos (se página inteira
+        tiver texto + diagrama) ou None se vazio/repetido.
+        """
         if not img_bytes:
             return None
         h = hashlib.sha256(img_bytes).hexdigest()
@@ -1045,39 +1273,58 @@ class _ContextoOCR:
             return None  # imagem repetida no mesmo documento (logo, carimbo): não duplica
         self._hashes_vistos.add(h)
 
-        if self.salvar_diagramas:
-            eh_diag, motivo, rotulos, png_bytes, dims = classificar_e_extrair_diagrama(
-                img_bytes, self.min_dim_diagrama, self.prop_max, self.limiar
+        info = _analisar_imagem_completa(
+            img_bytes,
+            min_dim_ocr=self.min_dim,
+            min_dim_diag=self.min_dim_diagrama,
+            limiar_confianca=self.limiar,
+            prop_max_ocr=self.prop_max,
+            prop_max_diag=min(self.prop_max, 12.0),
+            analisar_diagrama=self.salvar_diagramas,
+        )
+        txt, conf, st, err = info["texto"], info["conf"], info["estado"], info["erro"]
+        self._cache[h] = (txt, conf, st, err)
+
+        if pagina_inteira:
+            tem_diag_pagina = (
+                self.salvar_diagramas
+                and info["eh_diag"]
+                and info["res_std"] >= 14.0
+                and info["cobertura_texto"] < 0.35
             )
-            if eh_diag:
-                self.contador_figuras += 1
-                if self.pasta_cache and png_bytes:
-                    try:
-                        pasta_blobs = self.pasta_cache / "blobs"
-                        pasta_blobs.mkdir(parents=True, exist_ok=True)
-                        (pasta_blobs / f"{h}.png").write_bytes(png_bytes)
-                    except Exception:
-                        pass
-                marcador = f"<!--DIAGRAMA_REF:{h}:{tipo_local}:{num_local}:{self.contador_figuras}-->"
-                info_diag = {
-                    "id_blob": h,
-                    "tipo_local": tipo_local,
-                    "num_local": num_local,
-                    "indice": self.contador_figuras,
-                    "largura": dims[0],
-                    "altura": dims[1],
-                    "rotulos": rotulos,
-                    "marcador": marcador,
-                }
-                self.diagramas.append(info_diag)
+            marcador = self._registrar_diagrama(h, info, num_local, tipo_local, guardar_texto=False) if tem_diag_pagina else ""
+            if st == "ok" and txt:
+                self.diag["ok"] += 1
+                self.qtd += 1
+                self.scores.append(conf)
+                return f"{txt}\n\n{marcador}" if marcador else txt
+            if marcador:
                 self.diag["ok"] += 1
                 self.qtd += 1
                 return marcador
+            if st == "error":
+                self.diag["error"] += 1
+                if err and len(self.erros) < 5:
+                    self.erros.append(err)
+            else:
+                self.diag["empty"] += 1
+            return None
 
-        res = executar_ocr_em_bytes(img_bytes, self.min_dim, self.limiar, self.prop_max)
-        self._cache[h] = res
-        txt, conf, st, err = res
+        if self.salvar_diagramas and info["eh_diag"]:
+            marcador = self._registrar_diagrama(h, info, num_local, tipo_local, guardar_texto=True)
+            self.diag["ok"] += 1
+            self.qtd += 1
+            if conf:
+                self.scores.append(conf)
+            return marcador
+
         if st == "ok" and txt:
+            palavras = set(re.findall(r"\b\w{3,}\b", txt.lower()))
+            if len(palavras) >= 15:
+                for visto in self._textos_ocr_vistos:
+                    if len(palavras & visto) / max(min(len(palavras), len(visto)), 1) >= 0.90:
+                        return None
+                self._textos_ocr_vistos.append(palavras)
             self.diag["ok"] += 1
             self.qtd += 1
             self.scores.append(conf)
@@ -1171,7 +1418,7 @@ def limpar_meta_info(meta: dict) -> dict:
     for k, v in (meta or {}).items():
         if v is None:
             continue
-        v = str(v).strip()
+        v = normalizar_unicode(str(v).strip())
         if k in ("creationDate", "modDate"):
             v = _limpar_data_pdf(v)
         v = re.sub(r"^Microsoft (Word|PowerPoint|Excel) - ", "", v)
@@ -1187,16 +1434,17 @@ def _limpar_bloco_pdf(txt: str) -> str:
     txt = txt.replace("­", "")
     txt = re.sub(r"(\w)-\n(?=[a-zà-ÿ])", r"\1", txt)
     linhas = [re.sub(r"[ \t]+", " ", ln).strip() for ln in txt.splitlines()]
-    return "\n".join(ln for ln in linhas if ln)
+    linhas = [ln for ln in linhas if ln and not re.match(r"^[_=\-~*•·]{8,}$", ln)]
+    return "\n".join(linhas)
 
 
 def remover_cabecalhos_rodapes(paginas: list[str]) -> tuple[list[str], int]:
     """
-    Remove cabeçalhos/rodapés repetidos (as 2 primeiras e 2 últimas linhas de cada página que se
-    repetem em >= 60% das páginas, incluindo números de página). A 1ª página fica intacta.
+    Remove cabeçalhos/rodapés repetidos (até as 6 primeiras e 6 últimas linhas de cada página
+    que se repetem em >= 60% das páginas, incluindo números de página). A 1ª página fica intacta.
     """
     n = len(paginas)
-    if n < 4:
+    if n < 3:
         return paginas, 0
 
     # Só números de página têm os dígitos ignorados; qualquer outra linha precisa ser idêntica,
@@ -1209,7 +1457,7 @@ def remover_cabecalhos_rodapes(paginas: list[str]) -> tuple[list[str], int]:
 
     def candidatas(p: str) -> list[int]:
         idx = [i for i, ln in enumerate(p.split("\n")) if ln.strip()]
-        sel = idx[:2] + idx[-2:]
+        sel = idx[:6] + idx[-6:]
         return sorted(set(sel))
 
     contagem = Counter()
@@ -1232,15 +1480,84 @@ def remover_cabecalhos_rodapes(paginas: list[str]) -> tuple[list[str], int]:
     return saida, removidas
 
 
+def _limpar_matriz_tabela_pdf(raw_rows: list[list]) -> str:
+    """Valida e converte matriz bruta de tabela PDF em Markdown, descartando falsas tabelas."""
+    linhas_limpas = []
+    for row in raw_rows or []:
+        if not row:
+            continue
+        cels = []
+        ant = None
+        for c in row:
+            val = re.sub(r"\s+", " ", _limpar_bloco_pdf(str(c or ""))).strip()
+            if val and val == ant:
+                cels.append("")
+            else:
+                cels.append(val)
+                if val:
+                    ant = val
+        if any(cels) and (not linhas_limpas or cels != linhas_limpas[-1]):
+            linhas_limpas.append(cels)
+
+    if len(linhas_limpas) < 2:
+        return ""
+    n_cols = max(len(ln) for ln in linhas_limpas)
+    cols_ativas = sum(1 for c in range(n_cols) if any(c < len(ln) and ln[c] for ln in linhas_limpas))
+    cels_unicas = {c for ln in linhas_limpas for c in ln if c}
+    tem_linha_multi = any(sum(1 for c in ln if c) >= 2 for ln in linhas_limpas)
+    if cols_ativas < 2 or len(cels_unicas) < 2 or not tem_linha_multi:
+        return ""
+    if len(cels_unicas) <= 2 and any(len(c) > 250 for c in cels_unicas):
+        return ""
+    return tabela_para_markdown(linhas_limpas)
+
+
+def _ordenar_blocos_visualmente(elementos: list[tuple]) -> list[tuple[float, str, bool]]:
+    """Ordena blocos de página PDF por faixas horizontais, priorizando rótulos curtos e ordem esquerda->direita."""
+    if not elementos:
+        return []
+    ordenados = sorted(elementos, key=lambda it: (round(it[0].y0, 1), round(it[0].x0, 1)))
+    faixas: list[dict] = []
+    for r, txt, eh_tab in ordenados:
+        alocado = False
+        for f in reversed(faixas[-3:]):
+            sobrep = min(r.y1, f["y1"]) - max(r.y0, f["y0"])
+            alt_min = max(min(r.height, f["y1"] - f["y0"]), 1.0)
+            mesma_faixa = sobrep > 0.35 * alt_min or (
+                not eh_tab and len(txt) <= 35 and r.y0 >= f["y0"] - 8 and r.y1 <= f["y1"] + 8
+            )
+            if mesma_faixa:
+                f["itens"].append((r, txt, eh_tab))
+                f["y0"] = min(f["y0"], r.y0)
+                f["y1"] = max(f["y1"], r.y1)
+                alocado = True
+                break
+        if not alocado:
+            faixas.append({"y0": r.y0, "y1": r.y1, "itens": [(r, txt, eh_tab)]})
+
+    itens = []
+    for f in faixas:
+        f["itens"].sort(
+            key=lambda it: (0 if (not it[2] and len(it[1]) <= 35) else 1, round(it[0].x0, 1), round(it[0].y0, 1))
+        )
+        for r, txt, eh_tab in f["itens"]:
+            itens.append((r.y0, txt, eh_tab))
+    return itens
+
+
 def _texto_pagina_pdf(pymupdf, pagina) -> str:
-    """Texto nativo da página em blocos, com tabelas detectadas em Markdown e sem duplicar o texto delas."""
+    """Texto nativo da página em ordem visual, com tabelas reais em Markdown e sem duplicar texto."""
     blocos = [b for b in pagina.get_text("blocks") if len(b) > 6 and b[6] == 0]
     tabelas = []
     try:
         achadas = pagina.find_tables()
         for tb in getattr(achadas, "tables", []) or []:
             if getattr(tb, "row_count", 0) >= 2 and getattr(tb, "col_count", 0) >= 2:
-                md = re.sub(r"<br\s*/?>", " ", tb.to_markdown() or "").strip()
+                try:
+                    raw_rows = tb.extract() or []
+                except Exception:
+                    raw_rows = []
+                md = _limpar_matriz_tabela_pdf(raw_rows)
                 if md:
                     tabelas.append((pymupdf.Rect(tb.bbox), md))
     except Exception:
@@ -1255,22 +1572,23 @@ def _texto_pagina_pdf(pymupdf, pagina) -> str:
                 return True
         return False
 
-    itens = []
+    elementos = []
     for b in blocos:
         r = pymupdf.Rect(b[:4])
         if tabelas and dentro_de_tabela(r):
             continue
         txt = _limpar_bloco_pdf(b[4])
         if txt:
-            itens.append((r.y0, txt))
+            elementos.append((r, txt, False))
     for tr, md in tabelas:
-        pos = next((i for i, (y, _) in enumerate(itens) if y >= tr.y0 - 1), len(itens))
-        itens.insert(pos, (tr.y0, md))
+        elementos.append((tr, md, True))
+
+    itens = _ordenar_blocos_visualmente(elementos)
 
     # Muitos PDFs gravam cada linha como um bloco: junta blocos que continuam a mesma frase
     # (bloco anterior sem pontuação final e o seguinte começando em minúscula/número).
     saida: list[str] = []
-    for _, txt in itens:
+    for _, txt, _eh_tab in itens:
         if (saida and not txt.startswith("|") and not saida[-1].startswith("|")
                 and saida[-1][-1:] not in ".:;!?)]" and re.match(r"[a-zà-ÿ0-9(\"“'«]", txt)):
             saida[-1] = saida[-1] + "\n" + txt
@@ -1373,7 +1691,7 @@ def extrair_pdf_hibrido(
                 texto_ocr = None
                 try:
                     pix = pagina.get_pixmap(dpi=dpi)
-                    texto_ocr = ctx.ocr(pix.tobytes("png"), num_local=pagina.number + 1, tipo_local="p")
+                    texto_ocr = ctx.ocr(pix.tobytes("png"), num_local=pagina.number + 1, tipo_local="p", pagina_inteira=True)
                 except Exception as e:
                     ctx.diag["error"] += 1
                     if len(ctx.erros) < 5:
@@ -1839,6 +2157,62 @@ def chave_cache(cfg: dict) -> str:
     return hashlib.md5(bruto.encode("utf-8")).hexdigest()[:12]
 
 
+def _despachar_extrator(
+    arq: Path,
+    cfg: dict,
+    pasta_cache: Path | None,
+    permitir_anexos_eml: bool = True,
+) -> tuple[str, int, int, dict, list, float, dict]:
+    """Despacha a extração para o leitor adequado conforme a extensão do arquivo."""
+    lang = obter_idioma(cfg)
+    ext = arq.suffix.lower()
+    min_dim = int(cfg.get("min_dimensao_imagem_ocr", 150))
+    limiar = float(cfg.get("limiar_confianca_ocr", 0.50))
+    prop_max = float(cfg.get("proporcao_max_aspecto_ocr", 20.0))
+    ocr_img = bool(cfg.get("usar_ocr_em_imagens_embutidas", True))
+    salvar_diag = bool(cfg.get("salvar_diagramas_em_pasta", True))
+    min_dim_diag = int(cfg.get("min_dimensao_diagrama", 150))
+    vazio = {"ok": 0, "empty": 0, "error": 0}
+
+    if ext == ".pdf":
+        return extrair_pdf_hibrido(
+            arq, usar_ocr=bool(cfg.get("usar_ocr_em_pdf", True)), dpi=int(cfg.get("dpi_ocr_pdf", 200)),
+            min_dim=min_dim, limiar_confianca=limiar, proporcao_max_aspecto=prop_max, lang=lang,
+            remover_repetidos=bool(cfg.get("remover_cabecalhos_rodapes", True)),
+            salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag, pasta_cache=pasta_cache,
+        )
+    if ext in EXTENSOES_IMAGEM:
+        if cfg.get("usar_ocr_em_pdf", True):
+            return extrair_imagem_avulsa(arq, min_dim=min_dim, limiar_confianca=limiar,
+                                         proporcao_max_aspecto=prop_max, lang=lang,
+                                         salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                         pasta_cache=pasta_cache)
+        return ("", 0, 1, {"aviso": tx(lang, "OCR desativado.", "OCR is disabled.")}, [], 0.0, vazio)
+    if ext == ".docx":
+        return extrair_docx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                       salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                       pasta_cache=pasta_cache)
+    if ext in (".xlsx", ".xlsm"):
+        return extrair_xlsx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                       salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                       pasta_cache=pasta_cache)
+    if ext == ".xls":
+        return extrair_xls_legado(arq, lang)
+    if ext == ".pptx":
+        return extrair_pptx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
+                                       salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
+                                       pasta_cache=pasta_cache)
+    if ext == ".csv":
+        txt = extrair_csv_estruturado(arq)
+        return (txt, 0, 1, {}, [{"pagina": 1, "texto": txt}] if txt else [], 0.0, vazio)
+    txt, meta = extrair_texto_generico(arq, ext, lang, cfg=cfg, pasta_cache=pasta_cache, permitir_anexos_eml=permitir_anexos_eml)
+    meta = dict(meta or {})
+    ocr_m = meta.pop("_ocr_count", 0)
+    diag_m = meta.pop("_diag_ocr", vazio)
+    conf_m = meta.pop("_confianca", 0.0)
+    return (txt, ocr_m, 1, meta, [{"pagina": 1, "texto": txt}] if txt else [], conf_m, diag_m)
+
+
 def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | None]:
     """Processa um arquivo (em processo separado) e grava o resultado no cache."""
     raiz_str, arq_str, pasta_cache_str, cfg = args
@@ -1869,49 +2243,7 @@ def worker_processar_arquivo(args: tuple) -> tuple[str, str, str, dict, str | No
                 pass  # cache corrompido: reprocessa
 
         ext = arq.suffix.lower()
-        min_dim = int(cfg.get("min_dimensao_imagem_ocr", 150))
-        limiar = float(cfg.get("limiar_confianca_ocr", 0.50))
-        prop_max = float(cfg.get("proporcao_max_aspecto_ocr", 20.0))
-        ocr_img = bool(cfg.get("usar_ocr_em_imagens_embutidas", True))
-        salvar_diag = bool(cfg.get("salvar_diagramas_em_pasta", True))
-        min_dim_diag = int(cfg.get("min_dimensao_diagrama", 150))
-        vazio = {"ok": 0, "empty": 0, "error": 0}
-
-        if ext == ".pdf":
-            res = extrair_pdf_hibrido(
-                arq, usar_ocr=bool(cfg.get("usar_ocr_em_pdf", True)), dpi=int(cfg.get("dpi_ocr_pdf", 200)),
-                min_dim=min_dim, limiar_confianca=limiar, proporcao_max_aspecto=prop_max, lang=lang,
-                remover_repetidos=bool(cfg.get("remover_cabecalhos_rodapes", True)),
-                salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag, pasta_cache=pasta_cache,
-            )
-        elif ext in EXTENSOES_IMAGEM:
-            if cfg.get("usar_ocr_em_pdf", True):
-                res = extrair_imagem_avulsa(arq, min_dim=min_dim, limiar_confianca=limiar,
-                                            proporcao_max_aspecto=prop_max, lang=lang,
-                                            salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
-                                            pasta_cache=pasta_cache)
-            else:
-                res = ("", 0, 1, {"aviso": tx(lang, "OCR desativado.", "OCR is disabled.")}, [], 0.0, vazio)
-        elif ext == ".docx":
-            res = extrair_docx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
-                                          salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
-                                          pasta_cache=pasta_cache)
-        elif ext in (".xlsx", ".xlsm"):
-            res = extrair_xlsx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
-                                           salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
-                                           pasta_cache=pasta_cache)
-        elif ext == ".xls":
-            res = extrair_xls_legado(arq, lang)
-        elif ext == ".pptx":
-            res = extrair_pptx_contextual(arq, ocr_img, min_dim, limiar, prop_max, lang,
-                                          salvar_diagramas=salvar_diag, min_dim_diagrama=min_dim_diag,
-                                          pasta_cache=pasta_cache)
-        elif ext == ".csv":
-            txt = extrair_csv_estruturado(arq)
-            res = (txt, 0, 1, {}, [{"pagina": 1, "texto": txt}] if txt else [], 0.0, vazio)
-        else:
-            txt, meta = extrair_texto_generico(arq, ext, lang)
-            res = (txt, 0, 1, meta, [{"pagina": 1, "texto": txt}] if txt else [], 0.0, vazio)
+        res = _despachar_extrator(arq, cfg, pasta_cache)
 
         conteudo, ocr_count, total_paginas, meta_info, paginas_rag, confianca, diag = res
         meta_info = dict(meta_info or {})
@@ -2093,7 +2425,7 @@ def listar_arquivos_elegiveis(
                 vistos.add(chave)
                 arquivos.append((raiz, item))
 
-    arquivos.sort(key=lambda x: f"{x[0].name}/{x[1].relative_to(x[0]).as_posix()}".lower())
+    arquivos.sort(key=lambda x: chave_ordenacao_natural(f"{x[0].name}/{x[1].relative_to(x[0]).as_posix()}"))
     return arquivos, sem_permissao
 
 
@@ -2163,17 +2495,20 @@ _ROTULOS_META = {
 
 
 def montar_documentos(resultados: list[tuple], lang: str) -> list[dict]:
-    """Ordena por pasta/caminho, atribui IDs e marca duplicados (binário idêntico ou mesmo texto)."""
-    resultados = sorted(resultados, key=lambda r: r[1].lower())
+    """Ordena por pasta/caminho (ordenação natural), atribui IDs e marca duplicados."""
+    resultados = sorted(resultados, key=lambda r: chave_ordenacao_natural(r[1]))
     largura = max(3, len(str(len(resultados))))
     docs = []
     por_hash: dict[str, str] = {}
     por_texto: dict[str, str] = {}
     for n, (nome, rel, grupo, meta) in enumerate(resultados, start=1):
         doc_id = f"[{n:0{largura}d}]"
+        nome_nfc = normalizar_unicode(nome)
+        rel_nfc = normalizar_unicode(rel)
+        grupo_nfc = normalizar_unicode(grupo)
         doc = {
-            "id": doc_id, "num": n, "nome": nome, "rel": rel, "grupo": grupo,
-            "ext": Path(nome).suffix.lower(), "meta": meta,
+            "id": doc_id, "num": n, "nome": nome_nfc, "rel": rel_nfc, "grupo": grupo_nfc,
+            "ext": Path(nome_nfc).suffix.lower(), "meta": meta,
             "dup_de": None, "dup_tipo": None, "semelhantes": [],
         }
         f_hash = meta.get("hash", "")
@@ -2192,7 +2527,7 @@ def montar_documentos(resultados: list[tuple], lang: str) -> list[dict]:
     return docs
 
 
-def detectar_quase_duplicados(docs: list[dict], limite_docs: int = 4000) -> list[tuple[dict, dict, float]]:
+def detectar_quase_duplicados(docs: list[dict], limite_docs: int = 20000) -> list[tuple[dict, dict, float]]:
     """Pares de documentos com >= 80% de vocabulário em comum e tamanhos parecidos (outras versões)."""
     itens = []
     for d in docs:
@@ -2205,10 +2540,30 @@ def detectar_quase_duplicados(docs: list[dict], limite_docs: int = 4000) -> list
     if len(itens) > limite_docs:
         return []
     itens.sort(key=lambda x: x[0])
+
+    candidatos_por_i: dict[int, set[int]] | None = None
+    if len(itens) > 150:
+        # Índice invertido pelas palavras mais raras de cada documento (garante 0 falsos negativos para >= 80%)
+        freq = Counter(p for _, _, w in itens for p in w)
+        indice_inv: dict[str, list[int]] = {}
+        for idx_i, (_, _, w) in enumerate(itens):
+            raras = sorted(w, key=lambda x: (freq[x], x))[: max(2, int(len(w) * 0.20) + 2)]
+            for pal in raras:
+                indice_inv.setdefault(pal, []).append(idx_i)
+        candidatos_por_i = {}
+        for idx_j, (_, _, w_j) in enumerate(itens):
+            for pal in w_j:
+                for idx_i in indice_inv.get(pal, ()):
+                    if idx_i < idx_j:
+                        candidatos_por_i.setdefault(idx_i, set()).add(idx_j)
+                    elif idx_j < idx_i:
+                        candidatos_por_i.setdefault(idx_j, set()).add(idx_i)
+
     pares = []
     for i in range(len(itens)):
         l1, d1, w1 = itens[i]
-        for j in range(i + 1, len(itens)):
+        alvos = sorted(candidatos_por_i.get(i, ())) if candidatos_por_i is not None else range(i + 1, len(itens))
+        for j in alvos:
             l2, d2, w2 = itens[j]
             if l1 < 0.6 * l2:
                 break  # ordenado por tamanho: os próximos são ainda maiores
@@ -2254,7 +2609,12 @@ def formatar_diagramas_no_texto(
             ]
             if dims_str:
                 linhas_card.append(f"> - **{tx(lang, 'Dimensões', 'Dimensions')}:** {dims_str}")
-            if rot_str:
+            txt_diag = (diag.get("texto_ocr") or "").strip()
+            if txt_diag:
+                linhas_card.append(f"> - **{tx(lang, 'Texto / Rótulos detectados', 'Detected text / labels')}:**")
+                for ln_ocr in txt_diag.splitlines():
+                    linhas_card.append(f">   {ln_ocr}" if ln_ocr.strip() else ">")
+            elif rot_str:
                 linhas_card.append(f"> - **{tx(lang, 'Rótulos / Textos detectados:', 'Detected labels / text:')}** *{rot_str}*")
             linhas_card.append(">")
             linhas_card.append(f"> ![{tx(lang, 'Diagrama', 'Diagram')}: {doc.get('nome', '')} - {loc_nome} {num_loc}]({caminho_rel})")
@@ -2262,15 +2622,16 @@ def formatar_diagramas_no_texto(
             texto = texto.replace(marcador, card_md)
         else:
             rotulos = diag.get("rotulos", [])
-            if rotulos:
+            txt_diag = (diag.get("texto_ocr") or "").strip() or "\n".join(rotulos)
+            if txt_diag:
                 lbl = tx(lang, "Imagem embutida — texto via OCR", "Embedded image — OCR text")
-                texto = texto.replace(marcador, citar_ocr(lbl, "\n".join(rotulos)))
+                texto = texto.replace(marcador, citar_ocr(lbl, txt_diag))
             else:
                 texto = texto.replace(marcador, "")
     return texto
 
 
-def render_catalogo_diagramas(catalogo: list[tuple[dict, dict]], lang: str) -> str:
+def render_catalogo_diagramas(catalogo: list[tuple[dict, dict]], lang: str, em_subpasta: bool = False) -> str:
     """Gera tabela consolidada de todos os diagramas e esquemas encontrados."""
     if not catalogo:
         return ""
@@ -2284,7 +2645,8 @@ def render_catalogo_diagramas(catalogo: list[tuple[dict, dict]], lang: str) -> s
         tipo_loc = diag.get("tipo_local", "p")
         num_loc = diag.get("num_local", 1)
         loc_nome = tx(lang, "Pág.", "Page") if tipo_loc == "p" else (tx(lang, "Slide", "Slide") if tipo_loc == "s" else tx(lang, "Aba", "Sheet"))
-        rel_link = f"[`{diag.get('rel_path', '')}`]({diag.get('rel_path', '')})"
+        rel_val = diag.get("rel_path_sub" if em_subpasta else "rel_path", "")
+        rel_link = f"[`{rel_val}`]({rel_val})"
         rotulos = " · ".join(diag.get("rotulos", [])[:6])
         desc = f"*{escapar_celula(rotulos)}*" if rotulos else f"*{tx(lang, 'Esquema visual sem texto', 'Visual schematic without text')}*"
         saida.append(f"| `FIG-{n:03d}` | {d.get('id', '')} {escapar_celula(d.get('nome', ''))} | {loc_nome} {num_loc} | {rel_link} | {desc} |")
@@ -2484,6 +2846,10 @@ def compactar_arquivos(arquivos: list[Path], base: Path, destino_zip: Path) -> b
             for arq in arquivos:
                 if arq.is_file() and arq != destino_zip:
                     z.write(arq, arq.relative_to(base).as_posix())
+                elif arq.is_dir():
+                    for sub in sorted(arq.rglob("*")):
+                        if sub.is_file() and sub != destino_zip:
+                            z.write(sub, sub.relative_to(base).as_posix())
         with zipfile.ZipFile(destino_zip, "r") as z:
             if z.testzip() is not None:
                 return False
@@ -2598,11 +2964,15 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
                 for d, _ in parte:
                     if not docs_parte or docs_parte[-1] is not d:
                         docs_parte.append(d)
+                ids_parte = {id(d) for d in docs_parte}
+                diag_parte = [(d, diag) for d, diag in catalogo_diagramas if id(d) in ids_parte]
                 titulo = tx(lang, f" — Parte {k} de {n}", f" — Part {k} of {n}")
                 cab = render_preambulo(lang, resumo, titulo_extra=titulo)
                 cab += (tx(lang, f"> Esta é a parte {k} de {n}. O catálogo completo está em `00_INDICE_MESTRE.md`.",
                            f"> This is part {k} of {n}. The full catalog is in `00_INDICE_MESTRE.md`.") + "\n\n")
                 cab += render_indice(docs_parte, lang, titulo=tx(lang, "DOCUMENTOS NESTA PARTE", "DOCUMENTS IN THIS PART"))
+                if diag_parte:
+                    cab += "\n" + render_catalogo_diagramas(diag_parte, lang, em_subpasta=False)
                 gravar(pasta_destino / f"corpus_parte_{k:02d}.md", cab + "\n---\n\n" + "".join(b for _, b in parte),
                        tx(lang, f"parte {k} de {n}", f"part {k} of {n}"))
 
@@ -2612,11 +2982,16 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
             b_sub = render_documento(d, lang, omitir, em_subpasta=True, salvar_diag=salvar_diag)
             grupos.setdefault(d["grupo"], []).append((d, b_sub))
         for i, (grupo, lista) in enumerate(grupos.items(), start=1):
+            docs_grupo = [d for d, _ in lista]
+            ids_grupo = {id(d) for d in docs_grupo}
+            diag_grupo = [(d, diag) for d, diag in catalogo_diagramas if id(d) in ids_grupo]
             titulo = f" — {tx(lang, 'Pasta', 'Folder')}: {grupo}"
             cab = render_preambulo(lang, dict(resumo, docs=len(lista), grupos=1,
                                               duplicados=sum(1 for d, _ in lista if d["dup_de"]) if omitir else 0,
                                               tokens=sum(len(b) for _, b in lista) // 4), titulo_extra=titulo)
-            cab += render_indice([d for d, _ in lista], lang)
+            cab += render_indice(docs_grupo, lang)
+            if diag_grupo:
+                cab += "\n" + render_catalogo_diagramas(diag_grupo, lang, em_subpasta=True)
             gravar(pasta_destino / "por_pasta" / f"{i:02d}_{sanitizar_nome_arquivo(grupo)}.md",
                    cab + "\n---\n\n" + "".join(b for _, b in lista), tx(lang, f"pasta {grupo}", f"folder {grupo}"))
 
@@ -2624,11 +2999,16 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
         qtd = max(1, int(cfg.get("qtd_docs_por_parte", 50)))
         for k, i in enumerate(range(0, len(blocos), qtd), start=1):
             fatia = blocos[i:i + qtd]
+            docs_lote = [d for d, _ in fatia]
+            ids_lote = {id(d) for d in docs_lote}
+            diag_lote = [(d, diag) for d, diag in catalogo_diagramas if id(d) in ids_lote]
             titulo = tx(lang, f" — Lote {k}", f" — Batch {k}")
             cab = render_preambulo(lang, dict(resumo, docs=len(fatia), grupos=len({d["grupo"] for d, _ in fatia}),
                                               duplicados=sum(1 for d, _ in fatia if d["dup_de"]) if omitir else 0,
                                               tokens=sum(len(b) for _, b in fatia) // 4), titulo_extra=titulo)
-            cab += render_indice([d for d, _ in fatia], lang)
+            cab += render_indice(docs_lote, lang)
+            if diag_lote:
+                cab += "\n" + render_catalogo_diagramas(diag_lote, lang, em_subpasta=True)
             nome = f"lote_{k:02d}_docs_{fatia[0][0]['num']:03d}_a_{fatia[-1][0]['num']:03d}.md"
             gravar(pasta_destino / "por_lotes" / nome, cab + "\n---\n\n" + "".join(b for _, b in fatia),
                    tx(lang, f"lote {k}", f"batch {k}"))
@@ -2639,7 +3019,7 @@ def gerar_saidas(docs: list[dict], cfg: dict, pasta_destino: Path, resumo: dict)
             nome = sanitizar_nome_arquivo(f"{d['id'].strip('[]')}_{d['nome']}") + ".md"
             gravar(pasta_destino / "individual" / nome, b_ind, d["rel"])
 
-    if cfg.get("gerar_jsonl", True):
+    if cfg.get("gerar_jsonl", False):
         caminho = pasta_destino / "corpus_rag.jsonl"
         with caminho.open("w", encoding="utf-8") as f:
             for d in docs:
@@ -2834,7 +3214,7 @@ def _resumo_config_execucao(cfg: dict, lang: str, max_workers: int) -> list[tupl
         saidas.append(tx(lang, f"lotes de {cfg.get('qtd_docs_por_parte', 50)}", f"batches of {cfg.get('qtd_docs_por_parte', 50)}"))
     if cfg.get("gerar_individual_por_arquivo", False):
         saidas.append("1:1")
-    if cfg.get("gerar_jsonl", True):
+    if cfg.get("gerar_jsonl", False):
         saidas.append("RAG JSONL")
     ocr = (tx(lang, f"ativado (DPI {cfg.get('dpi_ocr_pdf', 200)})", f"enabled (DPI {cfg.get('dpi_ocr_pdf', 200)})")
            if cfg.get("usar_ocr_em_pdf", True) else tx(lang, "desativado", "disabled"))
@@ -2845,7 +3225,7 @@ def _resumo_config_execucao(cfg: dict, lang: str, max_workers: int) -> list[tupl
          tx(lang, "MASCARADOS", "MASKED") if cfg.get("mascarar_pii", False) else tx(lang, "preservados (originais)", "preserved (raw)")),
         (tx(lang, "Duplicados", "Duplicates"), tx(lang, "conteúdo omitido", "content omitted") if cfg.get("omitir_duplicados", True) else tx(lang, "mantidos", "kept")),
         (tx(lang, "Processos paralelos", "Parallel workers"), str(max_workers)),
-        (tx(lang, "Compactar .zip", "Create .zip"), s if cfg.get("gerar_arquivo_zip", True) else n),
+        (tx(lang, "Compactar .zip", "Create .zip"), s if cfg.get("gerar_arquivo_zip", False) else n),
         (tx(lang, "Destino", "Destination"), str(resolver_caminho(cfg.get("pasta_saida", "./saida_copilot")))),
     ]
 
@@ -2930,7 +3310,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True, interativo: bool 
                 cfg["usar_ocr_em_pdf"] = novo
                 cfg["usar_ocr_em_imagens_embutidas"] = novo
             elif op == "Z":
-                cfg["gerar_arquivo_zip"] = not cfg.get("gerar_arquivo_zip", True)
+                cfg["gerar_arquivo_zip"] = not cfg.get("gerar_arquivo_zip", False)
             salvar_config(cfg)
 
     max_workers = workers_efetivos()
@@ -3022,7 +3402,7 @@ def executar_pipeline(cfg: dict, pausar_no_final: bool = True, interativo: bool 
     gerados.append((caminho_rel, tx(lang, "relatório de auditoria", "audit report")))
 
     arquivo_zip = None
-    if cfg.get("gerar_arquivo_zip", True):
+    if cfg.get("gerar_arquivo_zip", False):
         print(tx(lang, "Compactando .zip...", "Creating .zip..."))
         caminho_zip = pasta_destino / f"base_copilot_{carimbo}.zip"
         if compactar_arquivos([p for p, _ in gerados], pasta_destino, caminho_zip):
@@ -3349,8 +3729,8 @@ def menu_opcoes_saida_e_ocr(cfg: dict):
         print(f"  [5] {tx(lang, 'Lotes por quantidade de documentos', 'Batches by number of documents'):<46}: {sn('dividir_por_quantidade', False)}"
               f"  ({cfg.get('qtd_docs_por_parte', 50)} docs, [6] {tx(lang, 'alterar', 'change')})")
         print(f"  [7] {tx(lang, 'Um Markdown por documento (individual/)', 'One Markdown per document (individual/)'):<46}: {sn('gerar_individual_por_arquivo', False)}")
-        print(f"  [8] {tx(lang, 'Base RAG em JSONL (corpus_rag.jsonl)', 'RAG dataset in JSONL (corpus_rag.jsonl)'):<46}: {sn('gerar_jsonl')}")
-        print(f"  [9] {tx(lang, 'Compactar resultado em .zip', 'Compress result into .zip'):<46}: {sn('gerar_arquivo_zip')}")
+        print(f"  [8] {tx(lang, 'Base RAG em JSONL (corpus_rag.jsonl)', 'RAG dataset in JSONL (corpus_rag.jsonl)'):<46}: {sn('gerar_jsonl', False)}")
+        print(f"  [9] {tx(lang, 'Compactar resultado em .zip', 'Compress result into .zip'):<46}: {sn('gerar_arquivo_zip', False)}")
         print(f" [10] {tx(lang, 'Nova pasta com data/hora a cada execução', 'New timestamped folder on each run'):<46}: {sn('usar_pasta_timestamp')}")
         print(f" [11] {tx(lang, 'Pasta de saída', 'Output folder'):<46}: {cfg.get('pasta_saida')}")
 

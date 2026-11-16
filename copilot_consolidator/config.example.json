@@ -13,9 +13,9 @@
   "qtd_docs_por_parte": 50,
   "gerar_individual_por_arquivo": false,
   "gerar_por_pasta_raiz": true,
-  "gerar_jsonl": true,
+  "gerar_jsonl": false,
   "usar_pasta_timestamp": true,
-  "gerar_arquivo_zip": true,
+  "gerar_arquivo_zip": false,
   "mascarar_pii": false,
   "max_workers": 4,
   "usar_ocr_em_pdf": true,
@@ -32,8 +32,13 @@
     ".bmp",
     ".csv",
     ".docx",
+    ".eml",
+    ".htm",
+    ".html",
     ".jpeg",
     ".jpg",
+    ".json",
+    ".log",
     ".md",
     ".pdf",
     ".png",
@@ -43,6 +48,8 @@
     ".txt",
     ".webp",
     ".xls",
-    ".xlsx"
+    ".xlsm",
+    ".xlsx",
+    ".xml"
   ]
 }

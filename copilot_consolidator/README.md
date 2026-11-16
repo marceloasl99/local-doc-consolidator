@@ -56,7 +56,7 @@ Copilot limits how many files you can attach and struggles to cite sources acros
 | Excel | `.xlsx` `.xlsm` `.xls` | Every sheet as a table, dates/numbers cleaned, **pasted images (OCR)** |
 | PowerPoint | `.pptx` | Per slide: title, bullets, tables, **chart data**, images (OCR), speaker notes |
 | Images | `.png` `.jpg` `.tif` `.bmp` `.webp` | OCR keeping the line layout of receipts and forms (multi-page TIFF supported) |
-| Text & data | `.txt` `.md` `.csv` `.html` `.eml` `.json` `.xml` `.log` | CSV delimiter auto-detected, HTML/e-mail converted to text |
+| Text & data | `.txt` `.md` `.csv` `.html` `.eml` `.json` `.xml` `.log` | CSV delimiter auto-detected, HTML/e-mail + supported attachments converted to text |
 
 Not supported (listed in the report with a conversion tip): `.doc`, `.ppt`, `.msg`, `.rtf`, archives.
 
@@ -64,18 +64,18 @@ Not supported (listed in the report with a conversion tip): `.doc`, `.ppt`, `.ms
 
 ## 📦 What you get
 
-Output goes to `copilot_consolidator/saida_copilot/ultimo_processamento/` (plus a timestamped copy):
+Output goes to `copilot_consolidator/saida_copilot/ultimo_processamento/` (plus a timestamped copy), focused by default on **clean, referenced Markdown** for Microsoft Copilot:
 
 | File | Use it for |
 | --- | --- |
-| **`corpus_completo.md`** | **The file to upload to Copilot**: instructions, document index and every document |
-| `corpus_parte_XX.md` | Same base split into parts (only when it exceeds the size limit, 8 MB by default) |
-| `por_pasta/*.md` | One file per folder/department, for topic-specific questions |
-| `00_INDICE_MESTRE.md` | Just the catalog of documents |
+| **`corpus_completo.md`** | **The file to upload to Copilot**: instructions, natural-sorted document index, diagram catalog, and every document |
+| `corpus_parte_XX.md` | Same base split into parts (only when it exceeds the size limit, 8 MB by default), each with its index and diagram catalog |
+| `por_pasta/*.md` | One file per folder/department (with filtered index and diagram catalog), for topic-specific questions |
+| `00_INDICE_MESTRE.md` | Just the catalog of documents and diagrams |
 | `COPILOT_PROMPT.txt` | Answering rules to paste into the chat |
 | `audit_report.md` | What failed, documents without text, low-confidence OCR, duplicates, skipped files |
-| `corpus_rag.jsonl` | One record per page for vector databases (Chroma, Qdrant, LangChain) |
-| `imagens/` | Ordered folder with saved diagrams and schematics (`docXXX_pYY_figZZ.png`) referenced in the text |
+| `imagens/` | Ordered folder (`docXXX_pYY_figZZ.png`) saving **only** non-pure-text diagrams/schematics, referenced in Markdown with full OCR text |
+| `corpus_rag.jsonl` / `.zip` | Optional exports (disabled by default; enable in menu `3` → `8` / `9` if needed) |
 
 Each document inside the base looks like this:
 
@@ -90,7 +90,7 @@ Each document inside the base looks like this:
 *[End of document [004]]*
 ```
 
-**Built-in quality safeguards:** exact duplicates are listed but not repeated · near-identical versions are flagged so Copilot does not mix them · OCR repeated logos are read once · broken OCR words are rejoined without merging acronyms (`LTDA`) · corrupted accents (`ObservaÃ§Ã£o` → `Observação`) are repaired · a file that crashes the reader is isolated without stopping the run.
+**Built-in quality safeguards:** natural numerical sorting (`1, 2, ... 10`) · Unicode NFC normalization · visual reading-order block sorting and false-table filtering on slide/Canva PDFs · multi-line repeated header/footer and divider removal · single-pass OCR distinguishing pure-text images (transcribed inline) from visual diagrams (saved in `imagens/` with full OCR text preserved) · scalable near-duplicate detection (up to 20,000 documents) · exact duplicates omitted · broken OCR words rejoined without merging acronyms (`LTDA`) · corrupted accents (`ObservaÃ§Ã£o` → `Observação`) repaired · crashing readers isolated without stopping the run.
 
 ---
 
@@ -98,7 +98,7 @@ Each document inside the base looks like this:
 
 - Everything runs locally: no cloud APIs, no telemetry (a test enforces that no network library is imported).
 - Internet is used **only once**, to install the Python libraries.
-- Personal data (CPF, RG, e-mail, phone, addresses, names) is **kept by default** for accurate analysis. To mask it, use menu `3` → `20`, press `P` on the confirmation screen, or run with `--redact-pii`.
+- Personal data (CPF, RG, e-mail, phone, addresses, names) is **kept by default** for accurate analysis. To mask it, use menu `3` → `21`, press `P` on the confirmation screen, or run with `--redact-pii`.
 
 ---
 
