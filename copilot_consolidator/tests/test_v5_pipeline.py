@@ -377,7 +377,7 @@ class TestRecursosV62(unittest.TestCase):
 
 
 class TestMelhoriasV63(unittest.TestCase):
-    """Testes das melhorias da v6.3: foco Markdown, ordenação natural, Unicode NFC, PDF e OCR."""
+    """Testes das melhorias da v7.0: foco Markdown, ordenação natural, Unicode NFC, PDF e OCR."""
 
     def test_padrao_somente_markdown(self):
         self.assertFalse(app.CONFIG_PADRAO["gerar_jsonl"])

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Consolidador Local de Documentos para Microsoft Copilot & RAG (v6.3)
-Local Document Consolidator for Microsoft Copilot & RAG (v6.3)
+Consolidador Local de Documentos para Microsoft Copilot & RAG (v7.0)
+Local Document Consolidator for Microsoft Copilot & RAG (v7.0)
 
 Objetivo: ler grandes volumes de documentos heterogêneos (PDF, Word, Excel, PowerPoint,
 CSV, texto, HTML, e-mails e imagens) e gerar UMA base Markdown única, organizada e
@@ -55,9 +55,9 @@ for _fluxo in (sys.stdout, sys.stderr):
 if platform.system() == "Windows":
     os.system("")  # habilita sequências ANSI no console do Windows
 
-VERSAO = "6.3"
+VERSAO = "7.0"
 # Incrementar sempre que a lógica de extração mudar: invalida o cache antigo automaticamente.
-VERSAO_EXTRATOR = "6.3.0"
+VERSAO_EXTRATOR = "7.0.0"
 
 
 class Cor:

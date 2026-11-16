@@ -1,7 +1,7 @@
 # Relatório Histórico Completo & Estado Atual do Projeto
 ## Projeto: Local Document Consolidator (`local-doc-consolidator`)
 **Repositório Oficial:** `marceloasl99/local-doc-consolidator`  
-**Versão Atual:** `v6.3`  
+**Versão Atual:** `v7.0`  
 **Última Atualização:** Novembro de 2026  
 **Status do Pipeline:** Produção / 100% Offline / Testes Automatizados 30/30 Passando  
 
@@ -31,9 +31,9 @@ flowchart TD
     v51["v5.1: Integridade Textual e Auto-Reparo<br/>• Auto-reparo de Mojibake (CP1252/UTF-8)<br/>• Desfragmentação de palavras do OCR<br/>• Detecção de quase-duplicatas (Jaccard >= 80%)<br/>• Relatórios 100% bilíngues dedicados"]
     v6["v6.0 - v6.1: Resiliência de Console, Qualidade e Multi-Launcher<br/>• Inicializador run.bat (elimina colisão no CMD)<br/>• Shells nativos PowerShell (start.ps1 / iniciar.ps1)<br/>• Preservação de dados brutos por padrão (PII OFF)<br/>• Correção de 8 bugs de extração e menu em 5 opções"]
     v62["v6.2: Detecção, Salvamento e Referenciamento de Diagramas<br/>• Separação de diagramas/esquemas em pasta imagens/<br/>• Ordenação docXXX_pYY_figZZ.png<br/>• Cards de referência e catálogo no 00_INDICE_MESTRE<br/>• Metadados no corpus_rag.jsonl e empacotamento ZIP"]
-    v63["v6.3: Foco em Grandes Volumes em Markdown + Precisão Visual<br/>• OCR em passe único + resíduo visual (texto puro vs. diagrama)<br/>• Ordem visual e filtro anti-falsas tabelas em PDFs<br/>• Cabeçalhos multi-linha, Unicode NFC e ordenação natural<br/>• Anexos .eml, catálogo em partes/pastas e índice escalável"]
+    v70["v7.0: Foco em Grandes Volumes em Markdown + Precisão Visual<br/>• OCR em passe único + resíduo visual (texto puro vs. diagrama)<br/>• Ordem visual e filtro anti-falsas tabelas em PDFs<br/>• Cabeçalhos multi-linha, Unicode NFC e ordenação natural<br/>• Anexos .eml, catálogo em partes/pastas e índice escalável"]
 
-    v0 --> v2 --> v4 --> v5 --> v51 --> v6 --> v62 --> v63
+    v0 --> v2 --> v4 --> v5 --> v51 --> v6 --> v62 --> v70
 ```
 
 ### 2.1 Versões 0.1 a 1.0 — O Protótipo Inicial
@@ -143,7 +143,7 @@ flowchart TD
 
 ---
 
-### 2.9 Versão 6.3 (Atual) — Foco em Grandes Volumes em Markdown, Separação por Resíduo Visual e Ordem Visual em PDF
+### 2.9 Versão 7.0 (Atual) — Foco em Grandes Volumes em Markdown, Separação por Resíduo Visual e Ordem Visual em PDF
 - **Objetivo:** Entregar Markdown 100% estruturado, limpo e referenciado para análise de grandes acervos no Microsoft Copilot (desativando `.jsonl` e `.zip` por padrão) e garantir precisão absoluta na separação entre imagens de texto puro (transcritas via OCR) e diagramas/figuras não traduzíveis salvos em `imagens/`.
 - **Implementações Principais:**
   - **OCR em Passe Único + Resíduo Visual Não-Textual:** O motor RapidOCR passa uma única vez por imagem; as caixas de texto são mascaradas para medir apenas o resíduo de bordas gráficas (`_medir_residuo_visual`). Imagens de puro texto viram apenas texto Markdown; diagramas/esquemas vão para `imagens/` preservando a transcrição OCR integral no card (`texto_ocr`) e evitando perda de texto em páginas escaneadas (`pagina_inteira=True`).
@@ -156,29 +156,32 @@ flowchart TD
 
 ## 3. Comparativo de Recursos por Versão
 
-| Funcionalidade / Característica | v0.1 - v1.0 | v2.0 - v3.0 | v4.0 | v5.0 | v5.1 | v6.0 - v6.1 | v6.2 (Atual) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Extração de Texto PDF Nativo** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Suporte a DOCX, PPTX, XLSX, CSV** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Motor OCR Offline (RapidOCR ONNX)** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Índice Mestre com IDs `[001]`** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Paralelismo Multiprocessado** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Cache SHA-256 em Disco** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Particionamento em 4 Formatos** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Compactação Automática em ZIP** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Exportação Estruturada `corpus_rag.jsonl`**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Filtragem de Aspecto e Confiança OCR**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| **Auto-Reparo de Mojibake (UTF-8/CP1252)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Desfragmentação de Palavras do OCR** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Detecção de Quase-Duplicatas ($\ge 80\%$)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Eliminação de Fatias Redundantes** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Relatórios Puros PT / EN** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
-| **Launcher `run.bat` (Sem Conflito no CMD)**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Shells Nativos PowerShell (`.ps1`)** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Dados Brutos Preservados por Padrão** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Redação Opcional de Nomes/RGs/Endereços**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| **Salvamento de Diagramas e Esquemas em Pasta**| ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| **Catálogo de Figuras no Índice Mestre** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Funcionalidade / Característica | v0.1 - v1.0 | v2.0 - v3.0 | v4.0 | v5.0 | v5.1 | v6.0 - v6.1 | v6.2 | v7.0 (Atual) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Extração de Texto PDF Nativo** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Suporte a DOCX, PPTX, XLSX, CSV** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Motor OCR Offline (RapidOCR ONNX)** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Índice Mestre com IDs `[001]`** | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Paralelismo Multiprocessado** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Cache SHA-256 em Disco** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Particionamento em 4 Formatos** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Compactação Automática em ZIP** | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚪ (Opcional) |
+| **Exportação Estruturada `corpus_rag.jsonl`**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ⚪ (Opcional) |
+| **Filtragem de Aspecto e Confiança OCR**| ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Auto-Reparo de Mojibake (UTF-8/CP1252)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Desfragmentação de Palavras do OCR** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Detecção de Quase-Duplicatas ($\ge 80\%$)** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ (20k docs) |
+| **Eliminação de Fatias Redundantes** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Relatórios Puros PT / EN** | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Launcher `run.bat` (Sem Conflito no CMD)**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Shells Nativos PowerShell (`.ps1`)** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Dados Brutos Preservados por Padrão** | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Redação Opcional de Nomes/RGs/Endereços**| ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Salvamento de Diagramas e Esquemas em Pasta**| ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **Catálogo de Figuras no Índice Mestre** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **OCR Passe Único + Resíduo Visual (Texto vs. Diagrama)**| ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Ordem Visual & Anti-Falsas Tabelas em PDF** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Unicode NFC, Ordem Natural & Anexos `.eml`** | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
 

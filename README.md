@@ -1,4 +1,4 @@
-# 📁 Local Document Consolidator for Microsoft Copilot
+# 📁 Local Document Consolidator for Microsoft Copilot (v7.0)
 
 **Turn hundreds of mixed documents into one organized file that Microsoft 365 Copilot can answer from — 100% offline.**
 

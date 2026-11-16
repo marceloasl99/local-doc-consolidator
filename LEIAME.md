@@ -1,4 +1,4 @@
-# Consolidador Local de Documentos para Microsoft Copilot v6.3
+# Consolidador Local de Documentos para Microsoft Copilot v7.0
 
 [![Plataforma: Windows 11 & macOS](https://img.shields.io/badge/Plataforma-Windows%2011%20%7C%20macOS-lightgrey.svg)](.)
 [![Privacidade: 100% Offline](https://img.shields.io/badge/Privacidade-100%25%20Offline-success.svg)](.)
